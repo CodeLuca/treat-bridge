@@ -14,6 +14,7 @@ const chainConfigs = {
     name: 'Sepolia',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
+    nativeCurrency: "ETH",
     icon: '🔵',
     lzChainId: 40161,
     abi: oftAbi,
@@ -22,6 +23,7 @@ const chainConfigs = {
     name: 'BSC Testnet',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT Adapter
     tokenAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E', // TREAT token
+    nativeCurrency: "BNB",
     icon: '🟡',
     lzChainId: 40102,
     abi: oftAdapterAbi,
@@ -30,6 +32,7 @@ const chainConfigs = {
     name: 'Polygon Amoy',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
+    nativeCurrency: "MATIC",
     icon: '🟣',
     lzChainId: 40267,
     abi: oftAbi,
@@ -209,13 +212,18 @@ const TreatBridge = () => {
         args: [{
           "dstEid": toChain.lzChainId,
           "to": pad(address),
-          "amountLD": parseEther(amount || '0'),
-          "minAmountLD": parseEther(amount || '0'),
+          "amountLD": +Number(amount || '0').toFixed(0),
+          "minAmountLD": +Number(amount || '0').toFixed(0),
           "extraOptions": '0x',
           "composeMsg": '0x',
           "oftCmd": '0x'
+        },
+          address,
+        {
+          nativeFee: Number(estimatedGas.nativeFee),
+          lzTokenFee: Number(estimatedGas.lzTokenFee)
         }],
-        value: estimatedGas,
+        value: Number(estimatedGas.nativeFee),
       });
 
       const result = await writeBridgeContract({
@@ -224,17 +232,19 @@ const TreatBridge = () => {
         functionName: 'send',
         args: [{
           "dstEid": toChain.lzChainId,
-          "fee": estimatedGas,
           "to": pad(address),
-          "amountLD": parseEther(amount || '0'),
-          "minAmountLD": parseEther(amount || '0'),
+          "amountLD": +Number(amount || '0').toFixed(0),
+          "minAmountLD": +Number(amount || '0').toFixed(0),
           "extraOptions": '0x',
           "composeMsg": '0x',
           "oftCmd": '0x'
         },
-        {}
-        ],
-        value: estimatedGas,
+          address,
+        {
+          nativeFee: Number(estimatedGas.nativeFee),
+          lzTokenFee: Number(estimatedGas.lzTokenFee)
+        }],
+        value: Number(estimatedGas.nativeFee),
       });
 
       if (result && result.hash) {
@@ -257,13 +267,12 @@ const TreatBridge = () => {
     setPercentageToTransfer(value);
     if (fromBalance) {
       const newAmount = (BigInt(fromBalance.value) * BigInt(value) / BigInt(100)).toString();
-      setAmount(formatEther(newAmount));
+      setAmount(Number(formatEther(newAmount)).toFixed(0));
     }
   };
 
   const calculateNewBalances = () => {
     if (!fromBalance || !toBalance || !amount) return { newFromBalance: null, newToBalance: null };
-
     const amountBigInt = parseEther(amount);
     const newFromBalance = fromBalance.value - amountBigInt;
     const newToBalance = toBalance.value + amountBigInt;
@@ -309,7 +318,7 @@ const TreatBridge = () => {
     return (
       <div className="space-y-2">
         <p className="text-sm text-gray-600">
-          Estimated Gas Fee: {estimatedGas?.nativeFee === BigInt(0) ? 'Calculating...' : `${estimatedGas?.nativeFee} ETH`}
+          Estimated Gas Fee: {!estimatedGas || !estimatedGas.nativeFee ? 'Calculating...' : `${formatEther(estimatedGas.nativeFee)} ${fromChain.nativeCurrency}`}
         </p>
         <button
           onClick={handleBridge}
