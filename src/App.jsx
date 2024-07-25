@@ -106,8 +106,8 @@ const TreatBridge = () => {
           args: [{
             "dstEid": toChain.lzChainId,
             "to": pad(address),
-            "amountLD": parseEther(amount || '0'),
-            "minAmountLD": parseEther(amount || '0'),
+            "amountLD": Number(parseEther(amount || '0')),
+            "minAmountLD": Number(parseEther(amount || '0')),
             "extraOptions": '0x',
             "composeMsg": '0x',
             "oftCmd": '0x'
@@ -125,7 +125,7 @@ const TreatBridge = () => {
         }
       } catch (err) {
         console.error('Gas estimation error:', err);
-        setEstimatedGas(BigInt(60000)); // Fallback to 60k gas
+        setEstimatedGas(60000); // Fallback to 60k gas
       }
     };
 
@@ -212,8 +212,8 @@ const TreatBridge = () => {
         args: [{
           "dstEid": toChain.lzChainId,
           "to": pad(address),
-          "amountLD": +Number(amount || '0').toFixed(0),
-          "minAmountLD": +Number(amount || '0').toFixed(0),
+          "amountLD": Number(parseEther(amount || '0')),
+          "minAmountLD": Number(parseEther(amount || '0')),
           "extraOptions": '0x',
           "composeMsg": '0x',
           "oftCmd": '0x'
@@ -233,8 +233,8 @@ const TreatBridge = () => {
         args: [{
           "dstEid": toChain.lzChainId,
           "to": pad(address),
-          "amountLD": +Number(amount || '0').toFixed(0),
-          "minAmountLD": +Number(amount || '0').toFixed(0),
+          "amountLD": Number(amount || '0'),
+          "minAmountLD": Number(amount || '0'),
           "extraOptions": '0x',
           "composeMsg": '0x',
           "oftCmd": '0x'
@@ -415,7 +415,7 @@ const TreatBridge = () => {
                 if (value === '' || /^\d*\.?\d*$/.test(value)) {
                   setAmount(value);
                   if (fromBalance) {
-                    const percentage = (formatEther(value) * BigInt(100) / fromBalance.value).toString();
+                    const percentage = (parseEther(value) * BigInt(100) / fromBalance.value).toString();
                     setPercentageToTransfer(Math.min(Number(percentage), 100));
                   }
                 }
