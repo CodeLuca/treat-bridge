@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
-import { parseEther, formatEther } from 'viem';
+import { parseEther, formatEther, pad } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ArrowLeftRight } from 'lucide-react';
 import ReactSlider from 'react-slider';
@@ -99,19 +99,23 @@ const TreatBridge = () => {
           address: fromChain.contractAddress,
           abi: fromChain.abi,
           functionName: 'quoteSend',
-          args: [
-            BigInt(toChain.lzChainId),
-            address,
-            parseEther(amount || '0'),
-            false,
-            '0x'
+          args: [{
+            "dstEid": toChain.lzChainId,
+            "to": pad(address),
+            "amountLD": parseEther(amount || '0'),
+            "minAmountLD": parseEther(amount || '0'),
+            "extraOptions":'0x',
+            "composeMsg":'0x',
+            "oftCmd":'0x'},
+            false
           ],
         });
 
-        if (result && Array.isArray(result) && result.length > 0) {
-          console.log('Estimated fees:', result[0]);
-          setEstimatedGas(result[0]);
+        if (result) {
+          console.log('Estimated fees:', Number(result.nativeFee));
+          setEstimatedGas(result.nativeFee);
         } else {
+          console.log('Estimated fees ERROR:', result);
           throw new Error('Invalid estimation result');
         }
       } catch (err) {
