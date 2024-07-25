@@ -47,7 +47,7 @@ const TreatBridge = () => {
   const [toChain, setToChain] = useState(chainConfigs[97]);
   const [amount, setAmount] = useState('');
   const [isApproved, setIsApproved] = useState(false);
-  const [estimatedGas, setEstimatedGas] = useState(BigInt(0));
+  const [estimatedGas, setEstimatedGas] = useState(null);
   const [error, setError] = useState(null);
   const [txHash, setTxHash] = useState(null);
   const [percentageToTransfer, setPercentageToTransfer] = useState(0);
@@ -95,6 +95,7 @@ const TreatBridge = () => {
       if (!address || !amount || !fromChain.contractAddress || !toChain.lzChainId) return;
 
       try {
+        console.log({ amount });
         const result = await publicClient.readContract({
           address: fromChain.contractAddress,
           abi: fromChain.abi,
@@ -104,16 +105,17 @@ const TreatBridge = () => {
             "to": pad(address),
             "amountLD": parseEther(amount || '0'),
             "minAmountLD": parseEther(amount || '0'),
-            "extraOptions":'0x',
-            "composeMsg":'0x',
-            "oftCmd":'0x'},
+            "extraOptions": '0x',
+            "composeMsg": '0x',
+            "oftCmd": '0x'
+          },
             false
           ],
         });
 
         if (result) {
-          console.log('Estimated fees:', Number(result.nativeFee));
-          setEstimatedGas(result.nativeFee);
+          console.log('Estimated fees:', result);
+          setEstimatedGas(result);
         } else {
           console.log('Estimated fees ERROR:', result);
           throw new Error('Invalid estimation result');
@@ -209,10 +211,10 @@ const TreatBridge = () => {
           "to": pad(address),
           "amountLD": parseEther(amount || '0'),
           "minAmountLD": parseEther(amount || '0'),
-          "extraOptions":'0x',
-          "composeMsg":'0x',
-          "oftCmd":'0x'}
-        ],
+          "extraOptions": '0x',
+          "composeMsg": '0x',
+          "oftCmd": '0x'
+        }],
         value: estimatedGas,
       });
 
@@ -222,13 +224,15 @@ const TreatBridge = () => {
         functionName: 'send',
         args: [{
           "dstEid": toChain.lzChainId,
+          "fee": estimatedGas,
           "to": pad(address),
           "amountLD": parseEther(amount || '0'),
           "minAmountLD": parseEther(amount || '0'),
-          "extraOptions":'0x',
-          "composeMsg":'0x',
-          "oftCmd":'0x'},
-          {}
+          "extraOptions": '0x',
+          "composeMsg": '0x',
+          "oftCmd": '0x'
+        },
+        {}
         ],
         value: estimatedGas,
       });
@@ -305,7 +309,7 @@ const TreatBridge = () => {
     return (
       <div className="space-y-2">
         <p className="text-sm text-gray-600">
-          Estimated Gas Fee: {estimatedGas === BigInt(0) ? 'Calculating...' : `${parseFloat(formatEther(estimatedGas)).toFixed(6)} ETH`}
+          Estimated Gas Fee: {estimatedGas?.nativeFee === BigInt(0) ? 'Calculating...' : `${estimatedGas?.nativeFee} ETH`}
         </p>
         <button
           onClick={handleBridge}
@@ -402,7 +406,7 @@ const TreatBridge = () => {
                 if (value === '' || /^\d*\.?\d*$/.test(value)) {
                   setAmount(value);
                   if (fromBalance) {
-                    const percentage = (parseEther(value) * BigInt(100) / fromBalance.value).toString();
+                    const percentage = (formatEther(value) * BigInt(100) / fromBalance.value).toString();
                     setPercentageToTransfer(Math.min(Number(percentage), 100));
                   }
                 }
