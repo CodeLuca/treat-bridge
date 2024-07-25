@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient } from 'wagmi';
+import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ArrowLeftRight } from 'lucide-react';
@@ -15,7 +15,7 @@ const chainConfigs = {
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
     icon: '🔵',
-    lzChainId: 10161,
+    lzChainId: 40161,
     abi: oftAbi,
   },
   97: { // BSC Testnet
@@ -23,7 +23,7 @@ const chainConfigs = {
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT Adapter
     tokenAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E', // TREAT token
     icon: '🟡',
-    lzChainId: 10102,
+    lzChainId: 40102,
     abi: oftAdapterAbi,
   },
   80002: { // Polygon Amoy
@@ -31,10 +31,11 @@ const chainConfigs = {
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
     icon: '🟣',
-    lzChainId: 10109,
+    lzChainId: 40267,
     abi: oftAbi,
   }
 };
+
 
 const TreatBridge = () => {
   const { address, isConnected } = useAccount();
@@ -53,8 +54,10 @@ const TreatBridge = () => {
 
   const { writeContract: writeApproveContract, isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWriteContract();
   const { writeContract: writeBridgeContract, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess } = useWriteContract();
+  const { data: transactionReceipt, isError: isTransactionError, isLoading: isTransactionLoading } = useWaitForTransactionReceipt({
+    hash: txHash,
+  });
 
-  // Fetch balance for both 'from' and 'to' chains
   const { data: fromBalance, isLoading: isFromBalanceLoading } = useBalance({
     address,
     token: fromChain.tokenAddress,
@@ -67,7 +70,6 @@ const TreatBridge = () => {
     chainId: Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === toChain)),
   });
 
-  // Check allowance
   const { data: allowance, isLoading: isAllowanceLoading } = useReadContract({
     address: fromChain.tokenAddress,
     abi: [
@@ -88,7 +90,6 @@ const TreatBridge = () => {
     enabled: !!address && !!fromChain.contractAddress,
   });
 
-  // Estimate gas using quoteSend
   useEffect(() => {
     const estimateGas = async () => {
       if (!address || !amount || !fromChain.contractAddress || !toChain.lzChainId) return;
@@ -131,11 +132,11 @@ const TreatBridge = () => {
   }, [chainId]);
 
   useEffect(() => {
-    if (allowance && amount) {
-      const isNowApproved = allowance >= parseEther(amount || '0');
+    if (allowance && fromBalance) {
+      const isNowApproved = allowance >= fromBalance.value;
       setIsApproved(isNowApproved);
     }
-  }, [allowance, amount]);
+  }, [allowance, fromBalance]);
 
   const handleFromChainChange = (newChainId) => {
     const newFromChain = chainConfigs[newChainId];
@@ -157,7 +158,7 @@ const TreatBridge = () => {
   };
 
   const handleApprove = async () => {
-    if (!address || !amount || !isConnected) return;
+    if (!address || !fromBalance || !isConnected) return;
 
     try {
       setError(null);
@@ -176,8 +177,9 @@ const TreatBridge = () => {
           }
         ],
         functionName: 'approve',
-        args: [fromChain.contractAddress, parseEther(amount)],
+        args: [fromChain.contractAddress, fromBalance.value],
       });
+
       if (result && result.hash) {
         setTxHash(result.hash);
       } else {
@@ -194,6 +196,22 @@ const TreatBridge = () => {
 
     try {
       setError(null);
+      console.log('Bridging with parameters:', {
+        address: fromChain.contractAddress,
+        abi: fromChain.abi,
+        functionName: 'sendFrom',
+        args: [
+          address,
+          BigInt(toChain.lzChainId),
+          address,
+          parseEther(amount),
+          address,
+          '0x0000000000000000000000000000000000000000',
+          '0x'
+        ],
+        value: estimatedGas,
+      });
+
       const result = await writeBridgeContract({
         address: fromChain.contractAddress,
         abi: fromChain.abi,
@@ -209,6 +227,7 @@ const TreatBridge = () => {
         ],
         value: estimatedGas,
       });
+
       if (result && result.hash) {
         setTxHash(result.hash);
       } else {
@@ -249,6 +268,50 @@ const TreatBridge = () => {
   const { newFromBalance, newToBalance } = calculateNewBalances();
 
   const isOnCorrectChain = chainId === Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain));
+
+  const renderActionButton = () => {
+    if (!isConnected) {
+      return <div className="flex justify-center" ><ConnectButton /></div>;
+    }
+
+    if (!isOnCorrectChain) {
+      return (
+        <button
+          onClick={handleSwitchChain}
+          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+        >
+          Switch to {fromChain.name}
+        </button>
+      );
+    }
+
+    if (!isApproved && fromBalance && allowance && fromBalance.value > allowance) {
+      return (
+        <button
+          onClick={handleApprove}
+          disabled={isApproveLoading || isTransactionLoading}
+          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+        >
+          {isApproveLoading || isTransactionLoading ? 'Approving...' : 'Approve TREAT'}
+        </button>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-gray-600">
+          Estimated Gas Fee: {estimatedGas === BigInt(0) ? 'Calculating...' : `${parseFloat(formatEther(estimatedGas)).toFixed(6)} ETH`}
+        </p>
+        <button
+          onClick={handleBridge}
+          disabled={isBridgeLoading || isTransactionLoading}
+          className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
+        >
+          {isBridgeLoading || isTransactionLoading ? 'Bridging...' : 'Bridge Tokens'}
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-200 to-pink-100 flex items-center justify-center p-4">
@@ -358,49 +421,26 @@ const TreatBridge = () => {
             />
             <div className="flex justify-between text-xs text-gray-500">
               <span>0%</span>
-              <span>{percentageToTransfer}%</span>
+              <span className="font-bold text-sm">{percentageToTransfer}%</span>
               <span>100%</span>
             </div>
           </div>
         </div>
 
+
         <div className="pt-4 max-w-sm mx-auto text-center">
-          {!isConnected ? (
-            <ConnectButton />
-          ) : !isOnCorrectChain ? (
-            <button
-              onClick={handleSwitchChain}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
-            >
-              Switch to {fromChain.name}
-            </button>
-          ) : !isApproved ? (
-            <button
-              onClick={handleApprove}
-              disabled={isApproveLoading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              {isApproveLoading ? 'Approving...' : 'Approve TREAT'}
-            </button>
-          ) : (
-            <div className="space-y-2">
-              <p className="text-sm text-gray-600">
-                Estimated Gas Fee: {estimatedGas === BigInt(0) ? 'Calculating...' : `${parseFloat(formatEther(estimatedGas)).toFixed(6)} ETH`}
-              </p>
-              <button
-                onClick={handleBridge}
-                disabled={isBridgeLoading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
-              >
-                {isBridgeLoading ? 'Bridging...' : 'Bridge Tokens'}
-              </button>
-            </div>
-          )}
+          {renderActionButton()}
         </div>
 
-        {(isApproveSuccess || isBridgeSuccess) && txHash && (
-          <div className="mt-3 text-center text-sm text-green-600">
-            Transaction submitted successfully! Hash: {txHash}
+        {txHash && (
+          <div className="mt-3 text-center text-sm">
+            {isTransactionLoading ? (
+              <p className="text-blue-600">Transaction pending... Hash: {txHash}</p>
+            ) : isTransactionError ? (
+              <p className="text-red-600">Transaction failed. Please try again.</p>
+            ) : (
+              <p className="text-green-600">Transaction successful! Hash: {txHash}</p>
+            )}
           </div>
         )}
 
