@@ -21,6 +21,6 @@ export const config = getDefaultConfig({
     polygonAmoy,
     bscTestnet,
     base,
-    ...(process.env.REACT_APP_ENABLE_TESTNETS === 'true' ? [sepolia] : []),
+    sepolia
   ],
 });

@@ -2,52 +2,37 @@ import React, { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient } from 'wagmi';
 import { parseEther, formatEther } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ArrowLeftRight } from 'lucide-react';
+import ReactSlider from 'react-slider';
 
-// Import your OFT ABI
+// Import your OFT and OFT Adapter ABIs
 import oftAbi from './oftAbi.json';
-
-// ERC20 ABI (only the functions we need)
-const erc20Abi = [
-  {
-    constant: false,
-    inputs: [
-      { name: '_spender', type: 'address' },
-      { name: '_value', type: 'uint256' }
-    ],
-    name: 'approve',
-    outputs: [{ name: '', type: 'bool' }],
-    type: 'function'
-  },
-  {
-    constant: true,
-    inputs: [
-      { name: '_owner', type: 'address' },
-      { name: '_spender', type: 'address' }
-    ],
-    name: 'allowance',
-    outputs: [{ name: '', type: 'uint256' }],
-    type: 'function'
-  }
-];
+import oftAdapterAbi from './oftAdapterAbi.json';
 
 const chainConfigs = {
   11155111: { // Sepolia
     name: 'Sepolia',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
+    tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
     icon: '🔵',
     lzChainId: 10161,
+    abi: oftAbi,
   },
   97: { // BSC Testnet
     name: 'BSC Testnet',
-    contractAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E',
+    contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT Adapter
+    tokenAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E', // TREAT token
     icon: '🟡',
     lzChainId: 10102,
+    abi: oftAdapterAbi,
   },
-  80002: { // Amoy
+  80002: { // Polygon Amoy
     name: 'Polygon Amoy',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
+    tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
     icon: '🟣',
     lzChainId: 10109,
+    abi: oftAbi,
   }
 };
 
@@ -64,41 +49,46 @@ const TreatBridge = () => {
   const [estimatedGas, setEstimatedGas] = useState(BigInt(0));
   const [error, setError] = useState(null);
   const [txHash, setTxHash] = useState(null);
+  const [percentageToTransfer, setPercentageToTransfer] = useState(0);
 
   const { writeContract: writeApproveContract, isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWriteContract();
   const { writeContract: writeBridgeContract, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess } = useWriteContract();
 
-  // Fetch balance for the current 'from' chain
-  const { data: balance, isLoading: isBalanceLoading } = useBalance({
+  // Fetch balance for both 'from' and 'to' chains
+  const { data: fromBalance, isLoading: isFromBalanceLoading } = useBalance({
     address,
-    token: fromChain.contractAddress,
+    token: fromChain.tokenAddress,
     chainId: Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain)),
+  });
+
+  const { data: toBalance, isLoading: isToBalanceLoading } = useBalance({
+    address,
+    token: toChain.tokenAddress,
+    chainId: Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === toChain)),
   });
 
   // Check allowance
   const { data: allowance, isLoading: isAllowanceLoading } = useReadContract({
-    address: fromChain.contractAddress,
-    abi: erc20Abi,
+    address: fromChain.tokenAddress,
+    abi: [
+      {
+        constant: true,
+        inputs: [
+          { name: '_owner', type: 'address' },
+          { name: '_spender', type: 'address' }
+        ],
+        name: 'allowance',
+        outputs: [{ name: '', type: 'uint256' }],
+        type: 'function'
+      }
+    ],
     functionName: 'allowance',
     args: address ? [address, fromChain.contractAddress] : undefined,
     chainId: Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain)),
     enabled: !!address && !!fromChain.contractAddress,
   });
 
-  // Fallback gas estimation
-  const estimateGasFallback = async () => {
-    try {
-      const gasPrice = await publicClient.getGasPrice();
-      // Estimate a higher gas limit as a safety margin
-      const estimatedGasLimit = BigInt(300000); // You may need to adjust this value
-      return gasPrice * estimatedGasLimit;
-    } catch (error) {
-      console.error('Error in fallback gas estimation:', error);
-      return BigInt(0);
-    }
-  };
-
-  // Estimate gas
+  // Estimate gas using quoteSend
   useEffect(() => {
     const estimateGas = async () => {
       if (!address || !amount || !fromChain.contractAddress || !toChain.lzChainId) return;
@@ -106,8 +96,8 @@ const TreatBridge = () => {
       try {
         const result = await publicClient.readContract({
           address: fromChain.contractAddress,
-          abi: oftAbi,
-          functionName: 'estimateSendFee',
+          abi: fromChain.abi,
+          functionName: 'quoteSend',
           args: [
             BigInt(toChain.lzChainId),
             address,
@@ -125,9 +115,7 @@ const TreatBridge = () => {
         }
       } catch (err) {
         console.error('Gas estimation error:', err);
-        // Use fallback estimation
-        const fallbackEstimate = await estimateGasFallback();
-        setEstimatedGas(fallbackEstimate);
+        setEstimatedGas(BigInt(60000)); // Fallback to 60k gas
       }
     };
 
@@ -135,63 +123,64 @@ const TreatBridge = () => {
   }, [address, amount, fromChain, toChain, publicClient]);
 
   useEffect(() => {
-    console.log('Chain ID changed:', chainId);
     if (chainId && chainConfigs[chainId]) {
       setFromChain(chainConfigs[chainId]);
-      // Set toChain to a different chain
       const otherChains = Object.values(chainConfigs).filter(chain => chain.name !== chainConfigs[chainId].name);
       setToChain(otherChains[Math.floor(Math.random() * otherChains.length)]);
     }
   }, [chainId]);
 
   useEffect(() => {
-    console.log('Allowance or amount changed:', { allowance, amount });
     if (allowance && amount) {
       const isNowApproved = allowance >= parseEther(amount || '0');
-      console.log('Is now approved:', isNowApproved);
       setIsApproved(isNowApproved);
     }
   }, [allowance, amount]);
 
   const handleFromChainChange = (newChainId) => {
-    console.log('Handling from chain change:', newChainId);
     const newFromChain = chainConfigs[newChainId];
     setFromChain(newFromChain);
-    // Update toChain to ensure it's different from the new fromChain
     const otherChains = Object.values(chainConfigs).filter(chain => chain.name !== newFromChain.name);
     setToChain(otherChains[Math.floor(Math.random() * otherChains.length)]);
+  };
+
+  const handleSwitchChain = async () => {
     if (switchChain) {
-      console.log('Switching chain to:', Number(newChainId));
-      switchChain(Number(newChainId));
+      try {
+        const targetChainId = Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain));
+        await switchChain({ chainId: targetChainId });
+      } catch (error) {
+        console.error('Error switching chain:', error);
+        setError('Failed to switch chain. Please try again.');
+      }
     }
   };
 
   const handleApprove = async () => {
-    console.log('Handling approve');
-    if (!address || !amount || !isConnected) {
-      console.log('Approve conditions not met:', { address, amount, isConnected });
-      return;
-    }
+    if (!address || !amount || !isConnected) return;
 
     try {
       setError(null);
-      console.log('Approving tokens:', {
-        address: fromChain.contractAddress,
-        spender: fromChain.contractAddress,
-        amount: parseEther(amount)
-      });
       const result = await writeApproveContract({
-        address: fromChain.contractAddress,
-        abi: erc20Abi,
+        address: fromChain.tokenAddress,
+        abi: [
+          {
+            constant: false,
+            inputs: [
+              { name: '_spender', type: 'address' },
+              { name: '_value', type: 'uint256' }
+            ],
+            name: 'approve',
+            outputs: [{ name: '', type: 'bool' }],
+            type: 'function'
+          }
+        ],
         functionName: 'approve',
         args: [fromChain.contractAddress, parseEther(amount)],
       });
-      console.log('Approve result:', result);
       if (result && result.hash) {
         setTxHash(result.hash);
-        console.log('Approve transaction hash:', result.hash);
       } else {
-        console.error('No transaction hash in approve result:', result);
         throw new Error('No transaction hash received for approve');
       }
     } catch (err) {
@@ -201,32 +190,13 @@ const TreatBridge = () => {
   };
 
   const handleBridge = async () => {
-    console.log('Handling bridge');
-    if (!address || !amount || !isConnected || !isApproved) {
-      console.log('Bridge conditions not met:', { address, amount, isConnected, isApproved });
-      return;
-    }
+    if (!address || !amount || !isConnected || !isApproved) return;
 
     try {
       setError(null);
-      console.log('Bridging tokens:', {
-        address: fromChain.contractAddress,
-        abi: oftAbi,
-        functionName: 'sendFrom',
-        args: [
-          address,
-          BigInt(toChain.lzChainId),
-          address,
-          parseEther(amount),
-          address,
-          '0x0000000000000000000000000000000000000000',
-          '0x'
-        ],
-        value: estimatedGas,
-      });
       const result = await writeBridgeContract({
         address: fromChain.contractAddress,
-        abi: oftAbi,
+        abi: fromChain.abi,
         functionName: 'sendFrom',
         args: [
           address,
@@ -239,12 +209,9 @@ const TreatBridge = () => {
         ],
         value: estimatedGas,
       });
-      console.log('Bridge result:', result);
       if (result && result.hash) {
         setTxHash(result.hash);
-        console.log('Bridge transaction hash:', result.hash);
       } else {
-        console.error('No transaction hash in bridge result:', result);
         throw new Error('No transaction hash received for bridge');
       }
     } catch (err) {
@@ -254,93 +221,159 @@ const TreatBridge = () => {
   };
 
   const handleSwapChains = () => {
-    console.log('Swapping chains');
     setToChain(fromChain);
     handleFromChainChange(Object.keys(chainConfigs).find(key => chainConfigs[key] === toChain));
   };
 
+  const handleSliderChange = (value) => {
+    setPercentageToTransfer(value);
+    if (fromBalance) {
+      const newAmount = (BigInt(fromBalance.value) * BigInt(value) / BigInt(100)).toString();
+      setAmount(formatEther(newAmount));
+    }
+  };
+
+  const calculateNewBalances = () => {
+    if (!fromBalance || !toBalance || !amount) return { newFromBalance: null, newToBalance: null };
+
+    const amountBigInt = parseEther(amount);
+    const newFromBalance = fromBalance.value - amountBigInt;
+    const newToBalance = toBalance.value + amountBigInt;
+
+    return {
+      newFromBalance: formatEther(newFromBalance),
+      newToBalance: formatEther(newToBalance),
+    };
+  };
+
+  const { newFromBalance, newToBalance } = calculateNewBalances();
+
+  const isOnCorrectChain = chainId === Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain));
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-200 to-pink-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 space-y-6 w-full max-w-md">
+      <div className="bg-white rounded-lg shadow-xl p-8 space-y-6 w-full max-w-5xl">
         <h1 className="text-3xl font-bold text-center text-pink-600">Treat Bridge</h1>
 
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">From</label>
+        <div className="flex items-center space-x-4 py-10 px-5">
+          {/* From Chain */}
+          <div className="flex-1 space-y-4">
+            <h2 className="text-xl font-semibold text-gray-700">From</h2>
             <select
               value={fromChain.name}
               onChange={(e) => handleFromChainChange(Object.keys(chainConfigs).find(key => chainConfigs[key].name === e.target.value))}
-              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm rounded-md"
+              className="w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm rounded-md"
             >
               {Object.values(chainConfigs).map((chain) => (
                 <option key={chain.name} value={chain.name}>{chain.icon} {chain.name}</option>
               ))}
             </select>
+            <div className="bg-gray-50 p-4 rounded-md">
+              <h3 className="text-sm font-medium text-gray-700">Current Balance</h3>
+              <p className="mt-1 text-xl font-semibold text-gray-900">
+                {isFromBalanceLoading ? 'Loading...' :
+                  fromBalance ? `${parseFloat(formatEther(fromBalance.value)).toFixed(4)} TREAT` : 'N/A'}
+              </p>
+              {newFromBalance && (
+                <div className="mt-2">
+                  <h3 className="text-sm font-medium text-gray-700">New Balance After Transfer</h3>
+                  <p className="text-lg font-semibold text-blue-600">{parseFloat(newFromBalance).toFixed(4)} TREAT</p>
+                </div>
+              )}
+            </div>
           </div>
 
+          {/* Swap Button */}
           <button
             onClick={handleSwapChains}
-            className="mx-auto block text-2xl text-pink-600 hover:text-pink-700 transition-colors"
+            className="text-pink-600 hover:text-pink-700 transition-colors px-8"
+            title="Click to swap chains"
           >
-            ⇅
+            <ArrowLeftRight size={24} />
           </button>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700">To</label>
+          {/* To Chain */}
+          <div className="flex-1 space-y-4">
+            <h2 className="text-xl font-semibold text-gray-700">To</h2>
             <select
               value={toChain.name}
               onChange={(e) => {
                 const selected = Object.values(chainConfigs).find(c => c.name === e.target.value);
                 if (selected) setToChain(selected);
               }}
-              className="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm rounded-md"
+              className="w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-pink-500 focus:border-pink-500 sm:text-sm rounded-md"
             >
               {Object.values(chainConfigs).map((chain) => (
                 <option key={chain.name} value={chain.name}>{chain.icon} {chain.name}</option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Amount</label>
-            <div className="mt-1 relative rounded-md shadow-sm">
-              <input
-                type="text"
-                value={amount}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                    setAmount(value);
-                  }
-                }}
-                placeholder="0.0"
-                className="focus:ring-pink-500 focus:border-pink-500 block w-full pl-3 pr-20 sm:text-sm border-gray-300 rounded-md"
-              />
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                <span className="text-gray-500 sm:text-sm">TREAT</span>
-              </div>
+            <div className="bg-gray-50 p-4 rounded-md">
+              <h3 className="text-sm font-medium text-gray-700">Current Balance</h3>
+              <p className="mt-1 text-xl font-semibold text-gray-900">
+                {isToBalanceLoading ? 'Loading...' :
+                  toBalance ? `${parseFloat(formatEther(toBalance.value)).toFixed(4)} TREAT` : 'N/A'}
+              </p>
+              {newToBalance && (
+                <div className="mt-2">
+                  <h3 className="text-sm font-medium text-gray-700">New Balance After Transfer</h3>
+                  <p className="text-lg font-semibold text-blue-600">{parseFloat(newToBalance).toFixed(4)} TREAT</p>
+                </div>
+              )}
             </div>
-          </div>
-
-          <div className="bg-gray-50 px-4 py-3 rounded-md">
-            <h2 className="text-sm font-medium text-gray-700">Your TREAT Balance</h2>
-            <p className="mt-1 text-xl font-semibold text-gray-900">
-              {isBalanceLoading ? 'Loading...' :
-                balance ? `${parseFloat(formatEther(balance.value)).toFixed(4)} TREAT` : 'N/A'}
-            </p>
-          </div>
-          <div className="bg-gray-50 px-4 py-2 rounded-md">
-            <h2 className="text-xs font-medium text-gray-700">Estimated Gas Fee</h2>
-            <p className="mt-1 text-sm font-semibold text-gray-900">
-              {estimatedGas === BigInt(0) ? 'Calculating...' :
-                `${parseFloat(formatEther(estimatedGas)).toFixed(6)} ETH`}
-            </p>
           </div>
         </div>
 
-        <div className="pt-4">
+        <div className="space-y-4 max-w-sm mx-auto text-center">
+          <h2 className="text-xl font-semibold text-gray-700">Amount to Transfer</h2>
+          <div className="relative rounded-md shadow-sm">
+            <input
+              type="text"
+              value={amount}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                  setAmount(value);
+                  if (fromBalance) {
+                    const percentage = (parseEther(value) * BigInt(100) / fromBalance.value).toString();
+                    setPercentageToTransfer(Math.min(Number(percentage), 100));
+                  }
+                }
+              }}
+              placeholder="0.0"
+              className="focus:ring-pink-500 focus:border-pink-500 block w-full pl-3 pr-20 sm:text-sm border-gray-300 rounded-md h-12"
+            />
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+              <span className="text-gray-500 sm:text-sm">TREAT</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <ReactSlider
+              className="w-full h-1 bg-gray-200 rounded-lg"
+              thumbClassName="w-4 h-4 bg-pink-500 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-400 -mt-1.5"
+              trackClassName="h-1 bg-pink-300 rounded-lg"
+              value={percentageToTransfer}
+              onChange={handleSliderChange}
+              min={0}
+              max={100}
+            />
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>0%</span>
+              <span>{percentageToTransfer}%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-4 max-w-sm mx-auto text-center">
           {!isConnected ? (
             <ConnectButton />
+          ) : !isOnCorrectChain ? (
+            <button
+              onClick={handleSwitchChain}
+              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+            >
+              Switch to {fromChain.name}
+            </button>
           ) : !isApproved ? (
             <button
               onClick={handleApprove}
@@ -350,13 +383,18 @@ const TreatBridge = () => {
               {isApproveLoading ? 'Approving...' : 'Approve TREAT'}
             </button>
           ) : (
-            <button
-              onClick={handleBridge}
-              disabled={isBridgeLoading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
-            >
-              {isBridgeLoading ? 'Bridging...' : 'Bridge Tokens'}
-            </button>
+            <div className="space-y-2">
+              <p className="text-sm text-gray-600">
+                Estimated Gas Fee: {estimatedGas === BigInt(0) ? 'Calculating...' : `${parseFloat(formatEther(estimatedGas)).toFixed(6)} ETH`}
+              </p>
+              <button
+                onClick={handleBridge}
+                disabled={isBridgeLoading}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
+              >
+                {isBridgeLoading ? 'Bridging...' : 'Bridge Tokens'}
+              </button>
+            </div>
           )}
         </div>
 
@@ -374,6 +412,6 @@ const TreatBridge = () => {
       </div>
     </div>
   );
-};
+}
 
-export default TreatBridge;
+export default TreatBridge

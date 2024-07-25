@@ -10960,6 +10960,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"lucide-react@npm:^0.414.0":
+  version: 0.414.0
+  resolution: "lucide-react@npm:0.414.0"
+  peerDependencies:
+    react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 65d4a6902d875e059d27c474d6d7319258b256240f509379857a48db2469aab40d9483d42d00b4b35ba610a58d9f2c5a21d716f4604e80ab0cdaa8e7203cff14
+  languageName: node
+  linkType: hard
+
 "lz-string@npm:^1.5.0":
   version: 1.5.0
   resolution: "lz-string@npm:1.5.0"
@@ -13601,6 +13610,17 @@ __metadata:
   bin:
     react-scripts: bin/react-scripts.js
   checksum: 92afa2f245c7092ccc97d5609dc7a2130616262e34da7f15072d9442e2d2e1d4909a91022abd1faac1336eb17c5525a10d9bd43e1ae374c7ec941ca20addca68
+  languageName: node
+  linkType: hard
+
+"react-slider@npm:^2.0.6":
+  version: 2.0.6
+  resolution: "react-slider@npm:2.0.6"
+  dependencies:
+    prop-types: ^15.8.1
+  peerDependencies:
+    react: ^16 || ^17 || ^18
+  checksum: 452bdb57dc6b7c9f476d43019298f19b7ee89432d690d8b6f6054a01dc05513e6dfc62885b9347635d0494611961bcde5bdb9c2ec4bbf605e4e1d6eaca8c3921
   languageName: node
   linkType: hard
 
@@ -16379,10 +16399,12 @@ __metadata:
     "@types/node": ^18.19.3
     "@types/react": ^18.3.0
     autoprefixer: ^10.4.19
+    lucide-react: ^0.414.0
     postcss: ^8.4.39
     react: ^18.3.0
     react-dom: ^18.3.0
     react-scripts: 5.0.1
+    react-slider: ^2.0.6
     tailwindcss: ^3.4.6
     typescript: 5.4.2
     util: 0.12.5
