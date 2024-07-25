@@ -296,16 +296,9 @@ const TreatBridge = () => {
       setTransactionState('awaitingConfirmation');
       setTransactionStatus('Please confirm the transaction in your wallet...');
 
-      const result = await writeBridgeContract(bridgeParams);
-      console.log("Bridge transaction result:", result);
+      await writeBridgeContract(bridgeParams);
 
-      if (result && result.hash) {
-        setTxHash(result.hash);
-        setTransactionState('pending');
-        setTransactionStatus('Bridge transaction sent. Waiting for confirmation...');
-      } else {
-        throw new Error('No transaction hash received for bridge operation');
-      }
+      // Don't set success state here, wait for the useEffect to handle it
     } catch (err) {
       console.error("Error initiating bridge transaction:", err);
       setError(`Error initiating bridge transaction: ${err.message}`);
@@ -322,10 +315,13 @@ const TreatBridge = () => {
     const checkMessage = async () => {
       try {
         console.log(`Checking LayerZero message (attempt ${attempts + 1}/${maxAttempts})`);
-        const messages = await lzClient.getMessagesBySrcTxHash(txHash);
-        if (messages && messages.length > 0) {
-          const message = messages[0];
+        const response = await lzClient.getMessagesBySrcTxHash(txHash);
+        console.log(response)
+
+        if (response && response && response.length > 0) {
+          const message = response[0];
           setLzMessage(message);
+
           console.log("LayerZero message status:", message.status);
           if (message.status === 'DELIVERED') {
             setTransactionState('confirmed');
@@ -336,7 +332,7 @@ const TreatBridge = () => {
               attempts++;
               setTimeout(checkMessage, 5000);
             } else {
-              throw new Error("Max attempts reached. Unable to confirm LayerZero transaction.");
+              console.log("Max attempts reached. Unable to confirm LayerZero transaction.");
             }
           }
         } else {
@@ -345,7 +341,7 @@ const TreatBridge = () => {
             attempts++;
             setTimeout(checkMessage, 5000);
           } else {
-            throw new Error("Max attempts reached. Unable to confirm LayerZero transaction.");
+            console.log("Max attempts reached. Unable to confirm LayerZero transaction.");
           }
         }
       } catch (error) {
