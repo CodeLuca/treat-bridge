@@ -203,15 +203,15 @@ const TreatBridge = () => {
       console.log('Bridging with parameters:', {
         address: fromChain.contractAddress,
         abi: fromChain.abi,
-        functionName: 'sendFrom',
-        args: [
-          address,
-          BigInt(toChain.lzChainId),
-          address,
-          parseEther(amount),
-          address,
-          '0x0000000000000000000000000000000000000000',
-          '0x'
+        functionName: 'send',
+        args: [{
+          "dstEid": toChain.lzChainId,
+          "to": pad(address),
+          "amountLD": parseEther(amount || '0'),
+          "minAmountLD": parseEther(amount || '0'),
+          "extraOptions":'0x',
+          "composeMsg":'0x',
+          "oftCmd":'0x'}
         ],
         value: estimatedGas,
       });
@@ -219,15 +219,16 @@ const TreatBridge = () => {
       const result = await writeBridgeContract({
         address: fromChain.contractAddress,
         abi: fromChain.abi,
-        functionName: 'sendFrom',
-        args: [
-          address,
-          BigInt(toChain.lzChainId),
-          address,
-          parseEther(amount),
-          address,
-          '0x0000000000000000000000000000000000000000',
-          '0x'
+        functionName: 'send',
+        args: [{
+          "dstEid": toChain.lzChainId,
+          "to": pad(address),
+          "amountLD": parseEther(amount || '0'),
+          "minAmountLD": parseEther(amount || '0'),
+          "extraOptions":'0x',
+          "composeMsg":'0x',
+          "oftCmd":'0x'},
+          {}
         ],
         value: estimatedGas,
       });
