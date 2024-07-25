@@ -318,8 +318,10 @@ const TreatBridge = () => {
         const response = await lzClient.getMessagesBySrcTxHash(txHash);
         console.log(response)
 
-        if (response && response && response.length > 0) {
-          const message = response[0];
+        if (response && response.messages && response.messages.length > 0) {
+          console.log(response.messages)
+          console.log(response.messages[0])
+          const message = response.messages[0];
           setLzMessage(message);
 
           console.log("LayerZero message status:", message.status);
