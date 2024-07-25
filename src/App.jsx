@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
-import { parseEther, formatEther, pad } from 'viem';
+import { parseEther, formatEther, pad, hexToBigInt } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ArrowLeftRight } from 'lucide-react';
 import ReactSlider from 'react-slider';
@@ -56,7 +56,7 @@ const TreatBridge = () => {
   const [percentageToTransfer, setPercentageToTransfer] = useState(0);
 
   const { writeContract: writeApproveContract, isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWriteContract();
-  const { writeContract: writeBridgeContract, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess } = useWriteContract();
+  const { writeContract: writeBridgeContract, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess, error: bridgeError } = useWriteContract();
   const { data: transactionReceipt, isError: isTransactionError, isLoading: isTransactionLoading } = useWaitForTransactionReceipt({
     hash: txHash,
   });
@@ -106,8 +106,8 @@ const TreatBridge = () => {
           args: [{
             "dstEid": toChain.lzChainId,
             "to": pad(address),
-            "amountLD": Number(parseEther(amount || '0')),
-            "minAmountLD": Number(parseEther(amount || '0')),
+            "amountLD": parseEther(amount || '0'),
+            "minAmountLD": parseEther(amount || '0'),
             "extraOptions": '0x',
             "composeMsg": '0x',
             "oftCmd": '0x'
@@ -125,7 +125,7 @@ const TreatBridge = () => {
         }
       } catch (err) {
         console.error('Gas estimation error:', err);
-        setEstimatedGas(60000); // Fallback to 60k gas
+        setEstimatedGas(BigInt(60000)); // Fallback to 60k gas
       }
     };
 
@@ -201,62 +201,77 @@ const TreatBridge = () => {
   };
 
   const handleBridge = async () => {
-    if (!address || !amount || !isConnected || !isApproved) return;
+    if (!address || !amount || !isConnected || !isApproved || !estimatedGas) {
+      console.error("Missing required parameters:", { address, amount, isConnected, isApproved, estimatedGas });
+      setError("Missing required parameters for bridge operation");
+      return;
+    }
 
     try {
       setError(null);
-      console.log('Bridging with parameters:', {
-        address: fromChain.contractAddress,
-        abi: fromChain.abi,
-        functionName: 'send',
-        args: [{
-          "dstEid": toChain.lzChainId,
-          "to": pad(address),
-          "amountLD": Number(parseEther(amount || '0')),
-          "minAmountLD": Number(parseEther(amount || '0')),
-          "extraOptions": '0x',
-          "composeMsg": '0x',
-          "oftCmd": '0x'
-        },
-          address,
-        {
-          nativeFee: Number(estimatedGas.nativeFee),
-          lzTokenFee: Number(estimatedGas.lzTokenFee)
-        }],
-        value: Number(estimatedGas.nativeFee),
+
+      console.log("Debug - Pre-conversion values:", {
+        address,
+        amount,
+        nativeFee: estimatedGas.nativeFee,
+        lzTokenFee: estimatedGas.lzTokenFee,
+        toChainLzId: toChain.lzChainId
       });
 
-      const result = await writeBridgeContract({
+      const amountBigInt = parseEther(amount);
+      const nativeFeeBigInt = estimatedGas.nativeFee ? hexToBigInt(estimatedGas.nativeFee) : 0n;
+      const lzTokenFeeBigInt = estimatedGas.lzTokenFee ? hexToBigInt(estimatedGas.lzTokenFee) : 0n;
+
+      const bridgeParams = {
         address: fromChain.contractAddress,
         abi: fromChain.abi,
         functionName: 'send',
-        args: [{
-          "dstEid": toChain.lzChainId,
-          "to": pad(address),
-          "amountLD": Number(amount || '0'),
-          "minAmountLD": Number(amount || '0'),
-          "extraOptions": '0x',
-          "composeMsg": '0x',
-          "oftCmd": '0x'
-        },
-          address,
-        {
-          nativeFee: Number(estimatedGas.nativeFee),
-          lzTokenFee: Number(estimatedGas.lzTokenFee)
-        }],
-        value: Number(estimatedGas.nativeFee),
-      });
+        args: [
+          {
+            dstEid: toChain.lzChainId,
+            to: pad(address), // Make sure this is bytes32
+            amountLD: amountBigInt,
+            minAmountLD: amountBigInt,
+            extraOptions: '0x',
+            composeMsg: '0x',
+            oftCmd: '0x'
+          },
+          {
+            nativeFee: nativeFeeBigInt,
+            lzTokenFee: lzTokenFeeBigInt
+          },
+          address // refundAddress
+        ],
+        value: nativeFeeBigInt,
+      };
+
+      console.log('Debug - bridgeParams:', JSON.stringify(bridgeParams, (_, v) =>
+        typeof v === 'bigint' ? v.toString() : v, 2
+      ));
+
+      const result = await writeBridgeContract(bridgeParams);
+
+      console.log('Bridge transaction result:', result);
 
       if (result && result.hash) {
         setTxHash(result.hash);
       } else {
+        console.error('No transaction hash received for bridge. Full result:', result);
         throw new Error('No transaction hash received for bridge');
       }
     } catch (err) {
       console.error("Error bridging tokens:", err);
-      setError(err.message || "An error occurred while bridging tokens");
+      console.error("Bridge error details:", bridgeError);
+      setError(`Error bridging tokens: ${err.message}`);
     }
   };
+
+  useEffect(() => {
+    if (bridgeError) {
+      console.error("Bridge error from useWriteContract:", bridgeError);
+      setError(bridgeError.message || "An error occurred while preparing the bridge transaction");
+    }
+  }, [bridgeError]);
 
   const handleSwapChains = () => {
     setToChain(fromChain);
