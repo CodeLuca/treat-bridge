@@ -54,6 +54,7 @@ const TreatBridge = () => {
   const [error, setError] = useState(null);
   const [txHash, setTxHash] = useState(null);
   const [percentageToTransfer, setPercentageToTransfer] = useState(0);
+  const [bridgeConfirmationPending, setBridgeConfirmationPending] = useState(false);
 
   const { writeContract: writeApproveContract, isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWriteContract();
   const { writeContract: writeBridgeContract, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess, error: bridgeError } = useWriteContract();
@@ -88,49 +89,53 @@ const TreatBridge = () => {
       }
     ],
     functionName: 'allowance',
-    args: address ? [address, fromChain.contractAddress] : undefined,
+    args: address && fromChain.contractAddress ? [address, fromChain.contractAddress] : undefined,
     chainId: Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain)),
     enabled: !!address && !!fromChain.contractAddress,
   });
 
-  useEffect(() => {
-    const estimateGas = async () => {
-      if (!address || !amount || !fromChain.contractAddress || !toChain.lzChainId) return;
+  const estimateGas = async () => {
+    if (!address || !fromChain.contractAddress || !toChain.lzChainId) return;
 
-      try {
-        console.log({ amount });
-        const result = await publicClient.readContract({
-          address: fromChain.contractAddress,
-          abi: fromChain.abi,
-          functionName: 'quoteSend',
-          args: [{
-            "dstEid": toChain.lzChainId,
-            "to": pad(address),
-            "amountLD": parseEther(amount || '0'),
-            "minAmountLD": parseEther(amount || '0'),
-            "extraOptions": '0x',
-            "composeMsg": '0x',
-            "oftCmd": '0x'
-          },
-            false
-          ],
-        });
+    try {
+      const estimatedAmount = '1'; // Use a fixed amount for estimation
+      const result = await publicClient.readContract({
+        address: fromChain.contractAddress,
+        abi: fromChain.abi,
+        functionName: 'quoteSend',
+        args: [{
+          "dstEid": toChain.lzChainId,
+          "to": pad(address),
+          "amountLD": parseEther(estimatedAmount),
+          "minAmountLD": parseEther(estimatedAmount),
+          "extraOptions": '0x',
+          "composeMsg": '0x',
+          "oftCmd": '0x'
+        },
+          false
+        ],
+      });
 
-        if (result) {
-          console.log('Estimated fees:', result);
-          setEstimatedGas(result);
-        } else {
-          console.log('Estimated fees ERROR:', result);
-          throw new Error('Invalid estimation result');
-        }
-      } catch (err) {
-        console.error('Gas estimation error:', err);
-        setEstimatedGas(BigInt(60000)); // Fallback to 60k gas
+      if (result) {
+        console.log('Estimated fees:', result);
+        setEstimatedGas(result);
+      } else {
+        console.log('Estimated fees ERROR:', result);
+        throw new Error('Invalid estimation result');
       }
-    };
+    } catch (err) {
+      console.error('Gas estimation error:', err);
+      setEstimatedGas(BigInt(60000)); // Fallback to 60k gas
+    }
+  };
 
+  useEffect(() => {
     estimateGas();
-  }, [address, amount, fromChain, toChain, publicClient]);
+  }, [])
+
+  useEffect(() => {
+    estimateGas();
+  }, [fromChain, toChain, amount]);
 
   useEffect(() => {
     if (chainId && chainConfigs[chainId]) {
@@ -142,16 +147,17 @@ const TreatBridge = () => {
 
   useEffect(() => {
     if (allowance && fromBalance) {
-      const isNowApproved = allowance >= fromBalance.value;
+      const isNowApproved = allowance >= (amount ? parseEther(amount) : fromBalance.value);
       setIsApproved(isNowApproved);
     }
-  }, [allowance, fromBalance]);
+  }, [allowance, fromBalance, amount]);
 
   const handleFromChainChange = (newChainId) => {
     const newFromChain = chainConfigs[newChainId];
     setFromChain(newFromChain);
     const otherChains = Object.values(chainConfigs).filter(chain => chain.name !== newFromChain.name);
     setToChain(otherChains[Math.floor(Math.random() * otherChains.length)]);
+    estimateGas();
   };
 
   const handleSwitchChain = async () => {
@@ -171,6 +177,7 @@ const TreatBridge = () => {
 
     try {
       setError(null);
+      const approvalAmount = parseEther(amount || formatEther(fromBalance.value));
       const result = await writeApproveContract({
         address: fromChain.tokenAddress,
         abi: [
@@ -186,7 +193,7 @@ const TreatBridge = () => {
           }
         ],
         functionName: 'approve',
-        args: [fromChain.contractAddress, fromBalance.value],
+        args: [fromChain.contractAddress, approvalAmount],
       });
 
       if (result && result.hash) {
@@ -209,6 +216,7 @@ const TreatBridge = () => {
 
     try {
       setError(null);
+      setBridgeConfirmationPending(true);
 
       console.log("Debug - Pre-conversion values:", {
         address,
@@ -229,7 +237,7 @@ const TreatBridge = () => {
         args: [
           {
             dstEid: toChain.lzChainId,
-            to: pad(address), // Make sure this is bytes32
+            to: pad(address),
             amountLD: amountBigInt,
             minAmountLD: amountBigInt,
             extraOptions: '0x',
@@ -256,26 +264,36 @@ const TreatBridge = () => {
       if (result && result.hash) {
         setTxHash(result.hash);
       } else {
-        console.error('No transaction hash received for bridge. Full result:', result);
-        throw new Error('No transaction hash received for bridge');
+        console.log('Transaction initiated, waiting for confirmation...');
+        // Instead of throwing an error, we'll wait for the transaction to be confirmed
       }
     } catch (err) {
       console.error("Error bridging tokens:", err);
       console.error("Bridge error details:", bridgeError);
       setError(`Error bridging tokens: ${err.message}`);
     }
+    // Note: We're not setting bridgeConfirmationPending to false here,
+    // as we want to keep showing the pending state until we get a hash
   };
 
   useEffect(() => {
     if (bridgeError) {
       console.error("Bridge error from useWriteContract:", bridgeError);
       setError(bridgeError.message || "An error occurred while preparing the bridge transaction");
+      setBridgeConfirmationPending(false);
     }
   }, [bridgeError]);
+
+  useEffect(() => {
+    if (txHash) {
+      setBridgeConfirmationPending(false);
+    }
+  }, [txHash]);
 
   const handleSwapChains = () => {
     setToChain(fromChain);
     handleFromChainChange(Object.keys(chainConfigs).find(key => chainConfigs[key] === toChain));
+    estimateGas();
   };
 
   const handleSliderChange = (value) => {
@@ -304,7 +322,7 @@ const TreatBridge = () => {
 
   const renderActionButton = () => {
     if (!isConnected) {
-      return <div className="flex justify-center" ><ConnectButton /></div>;
+      return <div className="flex justify-center"><ConnectButton /></div>;
     }
 
     if (!isOnCorrectChain) {
@@ -318,7 +336,7 @@ const TreatBridge = () => {
       );
     }
 
-    if (!isApproved && fromBalance && allowance && fromBalance.value > allowance) {
+    if (!isApproved && fromChain.name === 'BSC Testnet') {
       return (
         <button
           onClick={handleApprove}
@@ -337,10 +355,10 @@ const TreatBridge = () => {
         </p>
         <button
           onClick={handleBridge}
-          disabled={isBridgeLoading || isTransactionLoading}
+          disabled={isBridgeLoading || isTransactionLoading || bridgeConfirmationPending}
           className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pink-500 disabled:opacity-50"
         >
-          {isBridgeLoading || isTransactionLoading ? 'Bridging...' : 'Bridge Tokens'}
+          {bridgeConfirmationPending ? 'Confirm in MetaMask...' : isBridgeLoading || isTransactionLoading ? 'Bridging...' : 'Bridge Tokens'}
         </button>
       </div>
     );
@@ -420,7 +438,7 @@ const TreatBridge = () => {
         </div>
 
         <div className="space-y-4 max-w-sm mx-auto text-center">
-          <h2 className="text-xl font-semibold text-gray-700">Amount to Transfer</h2>
+          <h2 className="text-xl font-semibold text-gray-700 -mb-3">Amount to Transfer</h2>
           <div className="relative rounded-md shadow-sm">
             <input
               type="text"
@@ -465,9 +483,11 @@ const TreatBridge = () => {
           {renderActionButton()}
         </div>
 
-        {txHash && (
+        {(txHash || bridgeConfirmationPending) && (
           <div className="mt-3 text-center text-sm">
-            {isTransactionLoading ? (
+            {bridgeConfirmationPending ? (
+              <p className="text-blue-600">Please confirm the transaction in MetaMask...</p>
+            ) : isTransactionLoading ? (
               <p className="text-blue-600">Transaction pending... Hash: {txHash}</p>
             ) : isTransactionError ? (
               <p className="text-red-600">Transaction failed. Please try again.</p>
