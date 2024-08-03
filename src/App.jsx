@@ -485,7 +485,7 @@ const TreatBridge = () => {
 
   const getButtonText = () => {
     if (transactionState === 'confirmed' && isLzLoading) {
-      return 'Confirmed, Waiting for LayerZero...';
+      return 'Waiting for LayerZero confirmation...';
     }
 
     return {
@@ -544,7 +544,6 @@ const TreatBridge = () => {
       </div>
     );
   };
-
 
   const EventCard = ({ event, chainConfig }) => {
     const explorerUrl = `${chainConfig.explorerUrl}${event.transactionHash}`;
@@ -726,6 +725,8 @@ const TreatBridge = () => {
             </div>
           </div>
 
+          {/* Chain selection and balances */}
+
           <div className="space-y-4 max-w-sm mx-auto text-center">
             <h2 className="text-xl font-semibold text-gray-700 -mb-3">Amount to Transfer</h2>
             <div className="relative rounded-md shadow-sm">
@@ -771,7 +772,7 @@ const TreatBridge = () => {
             {renderActionButton()}
           </div>
 
-          {transactionStatus && (
+          {transactionStatus && !isLzLoading && (
             <div className="mt-3 text-center text-sm">
               <p className="text-blue-600">{transactionStatus}</p>
             </div>
