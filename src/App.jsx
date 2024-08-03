@@ -528,9 +528,13 @@ const TreatBridge = () => {
         <div className="flex justify-between items-start">
           <div className="space-y-2">
             <h3 className="text-lg font-semibold text-gray-800">{event.eventName}</h3>
-            <p className="text-sm text-gray-600">
-              Block: <span className="font-medium text-gray-800">{event.blockNumber}</span>
-            </p>
+            {
+              event.blockNumber && (
+                <p className="text-sm text-gray-600">
+                  Block: <span className="font-medium text-gray-800">{event.blockNumber}</span>
+                </p>
+              )
+            }
             <p className="text-sm text-gray-600">
               Log Index: <span className="font-medium text-gray-800">{event.logIndex}</span>
             </p>
@@ -546,15 +550,22 @@ const TreatBridge = () => {
           </a>
         </div>
         <div className="mt-3 pt-3 border-t border-gray-200">
-          <p className="text-sm text-gray-600">
-            From: <span className="font-medium text-gray-800">{event.args?.from}</span>
-          </p>
-          <p className="text-sm text-gray-600">
-            To: <span className="font-medium text-gray-800">{event.args?.to}</span>
-          </p>
-          <p className="text-sm text-gray-600">
-            Value: <span className="font-medium text-gray-800">{formatEther(event.args?.value || 0)} TREAT</span>
-          </p>
+          {
+            event.args?.from && (
+
+              <p className="text-sm text-gray-600">
+                From: <span className="font-medium text-gray-800">{event.args?.from}</span>
+              </p>
+            )
+          }
+          {
+            event.args?.to && (
+
+              <p className="text-sm text-gray-600">
+                To: <span className="font-medium text-gray-800">{event.args?.to}</span>
+              </p>
+            )
+          }
         </div>
       </div >
     );
@@ -604,12 +615,12 @@ const TreatBridge = () => {
               To: <span className="font-medium text-gray-800">{toChain.name}</span>
             </p>
           </div>
-          <div className="flex items-center justify-center mt-2">
+          {/* <div className="flex items-center justify-center mt-2">
             <Clock size={16} className="text-gray-400 mr-2" />
             <p className="text-sm text-gray-600">
               Created: <span className="font-medium text-gray-800">{new Date(message.createdAt).toLocaleString()}</span>
             </p>
-          </div>
+          </div> */}
         </div>
       </div >
     );
