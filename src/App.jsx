@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, pad } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { ArrowLeftRight, ExternalLink, Clock } from 'lucide-react';
+import { ArrowLeftRight, ExternalLink } from 'lucide-react';
 import ReactSlider from 'react-slider';
 import { createClient } from '@layerzerolabs/scan-client';
+import { ClipLoader } from 'react-spinners';
 import oftAbi from './oftAbi.json';
 import oftAdapterAbi from './oftAdapterAbi.json';
 
@@ -57,6 +58,14 @@ const convertBigIntToString = (obj) => {
   }, {});
 };
 
+// Loading Spinner Component
+const LoadingSpinner = ({ loading, message }) => (
+  <div className="flex flex-col items-center justify-center">
+    <ClipLoader color="#db2777" loading={loading} size={50} />
+    <p className="mt-2 text-pink-600 text-sm">{message}</p>
+  </div>
+);
+
 const TreatBridge = () => {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
@@ -76,6 +85,7 @@ const TreatBridge = () => {
   const [transactionStatus, setTransactionStatus] = useState('');
   const [transactionState, setTransactionState] = useState('idle');
   const [eventLogs, setEventLogs] = useState([]);
+  const [isLzLoading, setIsLzLoading] = useState(false);
 
   const { writeContract: writeApproveContract, isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWriteContract();
   const { writeContract: writeBridgeContract, data: writeBridgeData, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess, error: bridgeError } = useWriteContract();
@@ -181,6 +191,7 @@ const TreatBridge = () => {
       setIsApproved(isNowApproved);
     }
   }, [allowance, fromBalance, amount]);
+
   useEffect(() => {
     if (txHash && publicClient) {
       const unwatch = publicClient.watchContractEvent({
@@ -346,6 +357,7 @@ const TreatBridge = () => {
 
   const monitorLayerZeroTransaction = async (srcChainId, txHash) => {
     console.log("Starting LayerZero transaction monitoring for hash:", txHash);
+    setIsLzLoading(true); // Start spinner
     const maxAttempts = 30;
     let attempts = 0;
 
@@ -365,6 +377,7 @@ const TreatBridge = () => {
           if (message.status === 'DELIVERED') {
             setTransactionState('confirmed');
             setTransactionStatus(`LayerZero transaction confirmed. Message delivered to destination chain.`);
+            setIsLzLoading(false); // Stop spinner
           } else {
             setTransactionStatus(`LayerZero status: ${message.status}. Waiting for final confirmation...`);
             if (attempts < maxAttempts) {
@@ -372,6 +385,7 @@ const TreatBridge = () => {
               setTimeout(checkMessage, 5000);
             } else {
               console.log("Max attempts reached. Unable to confirm LayerZero transaction.");
+              setIsLzLoading(false); // Stop spinner
             }
           }
         } else {
@@ -381,17 +395,20 @@ const TreatBridge = () => {
             setTimeout(checkMessage, 5000);
           } else {
             console.log("Max attempts reached. Unable to confirm LayerZero transaction.");
+            setIsLzLoading(false); // Stop spinner
           }
         }
       } catch (error) {
         console.error('Error monitoring LayerZero transaction:', error);
         setError(`Error monitoring LayerZero transaction: ${error.message}`);
         setTransactionState('error');
+        setIsLzLoading(false); // Stop spinner
       }
     };
 
     checkMessage();
   };
+
   useEffect(() => {
     if (transactionReceipt) {
       setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Please wait for LayerZero confirmation...`);
@@ -466,6 +483,22 @@ const TreatBridge = () => {
 
   const isOnCorrectChain = chainId === Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain));
 
+  const getButtonText = () => {
+    if (transactionState === 'confirmed' && isLzLoading) {
+      return 'Confirmed, Waiting for LayerZero...';
+    }
+
+    return {
+      idle: 'Bridge Tokens',
+      preparing: 'Preparing...',
+      awaitingConfirmation: 'Confirm in Wallet',
+      pending: 'Waiting for Confirmation...',
+      transactionConfirmed: 'Confirmed, Please wait for LayerZero...',
+      confirmed: 'Bridge Transaction Complete',
+      error: 'Try Again'
+    }[transactionState];
+  };
+
   const renderActionButton = () => {
     if (!isConnected) {
       return <div className="flex justify-center"><ConnectButton /></div>;
@@ -494,15 +527,7 @@ const TreatBridge = () => {
       );
     }
 
-    const buttonText = {
-      idle: 'Bridge Tokens',
-      preparing: 'Preparing...',
-      awaitingConfirmation: 'Confirm in Wallet',
-      pending: 'Waiting for Confirmation...',
-      transactionConfirmed: 'Confirmed, Please wait for LayerZero...',
-      confirmed: 'Bridge Transaction Complete',
-      error: 'Try Again'
-    }[transactionState];
+    const buttonText = getButtonText();
 
     return (
       <div className="space-y-2">
@@ -519,6 +544,7 @@ const TreatBridge = () => {
       </div>
     );
   };
+
 
   const EventCard = ({ event, chainConfig }) => {
     const explorerUrl = `${chainConfig.explorerUrl}${event.transactionHash}`;
@@ -756,6 +782,8 @@ const TreatBridge = () => {
               Error: {error}
             </div>
           )}
+
+          {isLzLoading && <LoadingSpinner loading={isLzLoading} message="Waiting for LayerZero confirmation..." />}
 
           {lzMessage && <LzMessageCard message={lzMessage} fromChain={fromChain} toChain={toChain} />}
           {eventLogs.map((log, index) => (
