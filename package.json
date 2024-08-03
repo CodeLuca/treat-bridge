@@ -1,5 +1,6 @@
 {
   "name": "with-create-react-app",
+  "homepage": "http://lucamarchal.com/treat-bridge",
   "version": "0.1.91",
   "private": true,
   "dependencies": {

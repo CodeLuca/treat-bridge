@@ -5,17 +5,14 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ArrowLeftRight } from 'lucide-react';
 import ReactSlider from 'react-slider';
 import { createClient, waitForMessageReceived } from '@layerzerolabs/scan-client';
-
-// Importing ABIs for OFT and OFT Adapter contracts
 import oftAbi from './oftAbi.json';
 import oftAdapterAbi from './oftAdapterAbi.json';
 
-// Configuration for different chains
 const chainConfigs = {
   11155111: { // Sepolia
     name: 'Sepolia',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
-    tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
+    tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     nativeCurrency: "ETH",
     icon: '🔵',
     lzChainId: 40161,
@@ -23,8 +20,8 @@ const chainConfigs = {
   },
   97: { // BSC Testnet
     name: 'BSC Testnet',
-    contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT Adapter
-    tokenAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E', // TREAT token
+    contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
+    tokenAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E',
     nativeCurrency: "BNB",
     icon: '🟡',
     lzChainId: 40102,
@@ -33,7 +30,7 @@ const chainConfigs = {
   80002: { // Polygon Amoy
     name: 'Polygon Amoy',
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
-    tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd', // OFT is the token
+    tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     nativeCurrency: "MATIC",
     icon: '🟣',
     lzChainId: 40267,
@@ -41,15 +38,12 @@ const chainConfigs = {
   }
 };
 
-// Main component for the Treat Bridge application
 const TreatBridge = () => {
-  // Destructure account and chain information
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
   const publicClient = usePublicClient();
 
-  // State hooks for managing component state
   const [lzClient] = useState(() => createClient('testnet'));
   const [lzMessage, setLzMessage] = useState(null);
   const [fromChain, setFromChain] = useState(chainConfigs[chainId] || chainConfigs[11155111]);
@@ -64,7 +58,6 @@ const TreatBridge = () => {
   const [transactionState, setTransactionState] = useState('idle');
   const [eventLogs, setEventLogs] = useState([]);
 
-  // Hooks for contract writing and transaction receipt handling
   const { writeContract: writeApproveContract, isLoading: isApproveLoading, isSuccess: isApproveSuccess } = useWriteContract();
   const { writeContract: writeBridgeContract, data: writeBridgeData, isLoading: isBridgeLoading, isSuccess: isBridgeSuccess, error: bridgeError } = useWriteContract();
   const { data: transactionReceipt, isError: isTransactionError, isLoading: isTransactionLoading } = useWaitForTransactionReceipt({
@@ -72,7 +65,6 @@ const TreatBridge = () => {
     enabled: !!txHash,
   });
 
-  // Effect hook for handling transaction receipt updates
   useEffect(() => {
     if (transactionReceipt) {
       console.log("Transaction confirmed:", transactionReceipt);
@@ -82,7 +74,6 @@ const TreatBridge = () => {
     }
   }, [transactionReceipt, txHash]);
 
-  // Hooks for fetching balances and allowances
   const { data: fromBalance, isLoading: isFromBalanceLoading, refetch: refetchFromBalance } = useBalance({
     address,
     token: fromChain.tokenAddress,
@@ -113,12 +104,11 @@ const TreatBridge = () => {
     enabled: !!address && !!fromChain.contractAddress,
   });
 
-  // Function to estimate gas for the bridge transaction
   const estimateGas = async () => {
     if (!address || !fromChain.contractAddress || !toChain.lzChainId || !amount) return;
 
     try {
-      const estimatedAmount = amount; // Use the current amount for estimation
+      const estimatedAmount = amount;
       const result = await publicClient.readContract({
         address: fromChain.contractAddress,
         abi: fromChain.abi,
@@ -145,18 +135,16 @@ const TreatBridge = () => {
       }
     } catch (err) {
       console.error('Gas estimation error:', err);
-      setEstimatedGas(BigInt(60000)); // Fallback to 60k gas
+      setEstimatedGas(BigInt(60000));
     }
   };
 
-  // Effect hook to estimate gas when fromChain, toChain, or amount changes
   useEffect(() => {
     if (fromChain && toChain && amount) {
       estimateGas();
     }
   }, [fromChain, toChain, amount]);
 
-  // Effect hook to set the fromChain when chainId changes
   useEffect(() => {
     if (chainId && chainConfigs[chainId]) {
       setFromChain(chainConfigs[chainId]);
@@ -166,7 +154,6 @@ const TreatBridge = () => {
     }
   }, [chainId]);
 
-  // Effect hook to update approval status when allowance, fromBalance, or amount changes
   useEffect(() => {
     if (allowance && fromBalance) {
       const isNowApproved = allowance >= (amount ? parseEther(amount) : fromBalance.value);
@@ -174,13 +161,12 @@ const TreatBridge = () => {
     }
   }, [allowance, fromBalance, amount]);
 
-  // Effect hook to watch for contract events related to the bridge transaction
   useEffect(() => {
     if (txHash && publicClient) {
       const unwatch = publicClient.watchContractEvent({
         address: fromChain.contractAddress,
         abi: fromChain.abi,
-        eventName: 'SendToChain', // Replace with the actual event name from your contract
+        eventName: 'SendToChain',
         onLogs: (logs) => {
           console.log('New event logs:', logs);
           setEventLogs((prevLogs) => [...prevLogs, ...logs]);
@@ -194,14 +180,12 @@ const TreatBridge = () => {
     }
   }, [txHash, fromChain.contractAddress, fromChain.abi, publicClient]);
 
-  // Function to handle changes to the fromChain
   const handleFromChainChange = (newChainId) => {
     const newFromChain = chainConfigs[newChainId];
     setFromChain(newFromChain);
     estimateGas();
   };
 
-  // Function to switch the chain
   const handleSwitchChain = async () => {
     if (switchChain) {
       try {
@@ -214,7 +198,6 @@ const TreatBridge = () => {
     }
   };
 
-  // Function to handle token approval
   const handleApprove = async () => {
     if (!address || !fromBalance || !isConnected) return;
 
@@ -242,7 +225,6 @@ const TreatBridge = () => {
       if (result && result.hash) {
         setTxHash(result.hash);
         setTransactionStatus('Approval transaction sent. Waiting for confirmation...');
-        // Refetch allowance after approval
         await refetchAllowance();
       } else {
         throw new Error('No transaction hash received for approve');
@@ -253,7 +235,6 @@ const TreatBridge = () => {
     }
   };
 
-  // Function to handle the bridge transaction
   const handleBridge = async () => {
     if (!address || !amount || !isConnected || !isApproved || !estimatedGas) {
       console.error("Missing required parameters:", { address, amount, isConnected, isApproved, estimatedGas });
@@ -288,7 +269,7 @@ const TreatBridge = () => {
             nativeFee: nativeFeeBigInt,
             lzTokenFee: lzTokenFeeBigInt
           },
-          address // refundAddress
+          address
         ],
         value: nativeFeeBigInt,
       };
@@ -298,7 +279,6 @@ const TreatBridge = () => {
 
       await writeBridgeContract(bridgeParams);
 
-      // Don't set success state here, wait for the useEffect to handle it
     } catch (err) {
       console.error("Error initiating bridge transaction:", err);
       setError(`Error initiating bridge transaction: ${err.message}`);
@@ -306,7 +286,6 @@ const TreatBridge = () => {
     }
   };
 
-  // Function to monitor LayerZero transaction
   const monitorLayerZeroTransaction = async (srcChainId, txHash) => {
     console.log("Starting LayerZero transaction monitoring for hash:", txHash);
     const maxAttempts = 30;
@@ -356,7 +335,6 @@ const TreatBridge = () => {
     checkMessage();
   };
 
-  // Effect hook to refetch balances when transaction receipt is updated
   useEffect(() => {
     if (transactionReceipt) {
       setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Waiting for LayerZero confirmation...`);
@@ -365,14 +343,12 @@ const TreatBridge = () => {
     }
   }, [transactionReceipt]);
 
-  // Effect hook to monitor LayerZero transaction when transaction state changes
   useEffect(() => {
     if (transactionState === 'transactionConfirmed' && txHash) {
       monitorLayerZeroTransaction(fromChain.lzChainId, txHash);
     }
   }, [transactionState, txHash]);
 
-  // Effect hook to handle bridge success and error
   useEffect(() => {
     if (isBridgeSuccess && writeBridgeData) {
       console.log({ writeBridgeData });
@@ -387,7 +363,6 @@ const TreatBridge = () => {
     }
   }, [isBridgeSuccess, writeBridgeData, bridgeError]);
 
-  // Effect hook to handle bridge error
   useEffect(() => {
     if (bridgeError) {
       console.error("Bridge error from useWriteContract:", bridgeError);
@@ -396,7 +371,6 @@ const TreatBridge = () => {
     }
   }, [bridgeError]);
 
-  // Effect hook to update transaction status and refetch balances when transaction receipt is updated
   useEffect(() => {
     if (transactionReceipt) {
       setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}`);
@@ -406,13 +380,11 @@ const TreatBridge = () => {
     }
   }, [transactionReceipt]);
 
-  // Function to swap fromChain and toChain
   const handleSwapChains = () => {
     setToChain(fromChain);
     handleFromChainChange(Object.keys(chainConfigs).find(key => chainConfigs[key] === toChain));
   };
 
-  // Function to handle slider change
   const handleSliderChange = (value) => {
     setPercentageToTransfer(value);
     if (fromBalance) {
@@ -421,7 +393,6 @@ const TreatBridge = () => {
     }
   };
 
-  // Function to calculate new balances after transfer
   const calculateNewBalances = () => {
     if (!fromBalance || !toBalance || !amount) return { newFromBalance: null, newToBalance: null };
     const amountBigInt = parseEther(amount);
@@ -436,10 +407,8 @@ const TreatBridge = () => {
 
   const { newFromBalance, newToBalance } = calculateNewBalances();
 
-  // Check if the user is on the correct chain
   const isOnCorrectChain = chainId === Number(Object.keys(chainConfigs).find(key => chainConfigs[key] === fromChain));
 
-  // Render the action button based on the current state
   const renderActionButton = () => {
     if (!isConnected) {
       return <div className="flex justify-center"><ConnectButton /></div>;
@@ -497,15 +466,14 @@ const TreatBridge = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-pink-200 to-pink-100">
       <div className="flex justify-between items-center max-w-5xl mx-auto py-3 bg-transparent pt-10">
-        <ConnectButton />
+        {isConnected && <ConnectButton />}
       </div>
       <div className="mt-5 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-xl p-8 space-y-6 w-full max-w-5xl">
           <h1 className="text-3xl font-bold text-center text-pink-600">Treat Bridge</h1>
 
-          <div className="flex items-center space-x-4 py-10 px-5">
-            {/* From Chain */}
-            <div className="flex-1 space-y-4">
+          <div className="flex flex-col lg:flex-row items-center space-y-4 lg:space-y-0 lg:space-x-4 py-10 px-5">
+            <div className="flex-1 space-y-4 w-full">
               <h2 className="text-xl font-semibold text-gray-700">From</h2>
               <select
                 value={fromChain.name}
@@ -531,7 +499,6 @@ const TreatBridge = () => {
               </div>
             </div>
 
-            {/* Swap Button */}
             <button
               onClick={handleSwapChains}
               className="text-pink-600 hover:text-pink-700 transition-colors px-8"
@@ -540,8 +507,7 @@ const TreatBridge = () => {
               <ArrowLeftRight size={24} />
             </button>
 
-            {/* To Chain */}
-            <div className="flex-1 space-y-4">
+            <div className="flex-1 space-y-4 w-full">
               <h2 className="text-xl font-semibold text-gray-700">To</h2>
               <select
                 value={toChain.name}
