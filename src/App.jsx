@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useChainId, useBalance, useReadContract, useSwitchChain, usePublicClient, useWaitForTransactionReceipt } from 'wagmi';
-import { parseEther, formatEther, pad, hexToBigInt } from 'viem';
+import { parseEther, formatEther, pad } from 'viem';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { ArrowLeftRight } from 'lucide-react';
+import { ArrowLeftRight, ExternalLink, Clock } from 'lucide-react';
 import ReactSlider from 'react-slider';
-import { createClient, waitForMessageReceived } from '@layerzerolabs/scan-client';
+import { createClient } from '@layerzerolabs/scan-client';
 import oftAbi from './oftAbi.json';
 import oftAdapterAbi from './oftAdapterAbi.json';
 
@@ -14,6 +14,7 @@ const chainConfigs = {
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     nativeCurrency: "ETH",
+    explorerUrl: 'https://sepolia.etherscan.io/tx/',
     icon: '🔵',
     lzChainId: 40161,
     abi: oftAbi,
@@ -23,6 +24,7 @@ const chainConfigs = {
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0xdE637209AC5E70fA2F2B6C86684E860fd474A33E',
     nativeCurrency: "BNB",
+    explorerUrl: 'https://testnet.bscscan.com/tx/',
     icon: '🟡',
     lzChainId: 40102,
     abi: oftAdapterAbi,
@@ -32,10 +34,27 @@ const chainConfigs = {
     contractAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     tokenAddress: '0x845f1be42fdbf9f285bf1278256b6627543f51dd',
     nativeCurrency: "MATIC",
+    explorerUrl: 'https://amoy.polygonscan.com/tx/',
     icon: '🟣',
     lzChainId: 40267,
     abi: oftAbi,
   }
+};
+const replacer = (key, value) => (typeof value === 'bigint' ? value.toString() : value);
+
+const convertBigIntToString = (obj) => {
+  if (typeof obj !== 'object' || obj === null) {
+    return obj;
+  }
+
+  if (Array.isArray(obj)) {
+    return obj.map(convertBigIntToString);
+  }
+
+  return Object.entries(obj).reduce((acc, [key, value]) => {
+    acc[key] = typeof value === 'bigint' ? value.toString() : convertBigIntToString(value);
+    return acc;
+  }, {});
 };
 
 const TreatBridge = () => {
@@ -67,8 +86,9 @@ const TreatBridge = () => {
 
   useEffect(() => {
     if (transactionReceipt) {
-      console.log("Transaction confirmed:", transactionReceipt);
-      setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Waiting for LayerZero confirmation...`);
+      const jsonReceipt = JSON.stringify(transactionReceipt, replacer);
+      console.log("Transaction confirmed:", jsonReceipt);
+      setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Please wait for LayerZero confirmation...`);
       setTransactionState('transactionConfirmed');
       monitorLayerZeroTransaction(fromChain.lzChainId, txHash);
     }
@@ -127,7 +147,8 @@ const TreatBridge = () => {
       });
 
       if (result) {
-        console.log('Estimated fees:', result);
+        const jsonResult = JSON.stringify(result, replacer);
+        console.log('Estimated fees:', jsonResult);
         setEstimatedGas(result);
       } else {
         console.log('Estimated fees ERROR:', result);
@@ -160,7 +181,6 @@ const TreatBridge = () => {
       setIsApproved(isNowApproved);
     }
   }, [allowance, fromBalance, amount]);
-
   useEffect(() => {
     if (txHash && publicClient) {
       const unwatch = publicClient.watchContractEvent({
@@ -203,7 +223,34 @@ const TreatBridge = () => {
 
     try {
       setError(null);
+      setTransactionState('preparing');
+      setTransactionStatus('Preparing approval transaction...');
+
       const approvalAmount = parseEther(amount || formatEther(fromBalance.value));
+      console.log('Approval amount:', approvalAmount);
+
+      // Manually estimate gas
+      const gasEstimate = await publicClient.estimateGas({
+        address: fromChain.tokenAddress,
+        abi: [
+          {
+            constant: false,
+            inputs: [
+              { name: '_spender', type: 'address' },
+              { name: '_value', type: 'uint256' }
+            ],
+            name: 'approve',
+            outputs: [{ name: '', type: 'bool' }],
+            type: 'function'
+          }
+        ],
+        functionName: 'approve',
+        args: [fromChain.contractAddress, approvalAmount],
+        value: 0n
+      });
+
+      console.log('Gas estimate for approval:', gasEstimate);
+
       const result = await writeApproveContract({
         address: fromChain.tokenAddress,
         abi: [
@@ -220,24 +267,35 @@ const TreatBridge = () => {
         ],
         functionName: 'approve',
         args: [fromChain.contractAddress, approvalAmount],
+        gasLimit: gasEstimate || BigInt(60000)  // Use estimated gas or fallback
       });
+
+      console.log('Approve result:', result);
 
       if (result && result.hash) {
         setTxHash(result.hash);
         setTransactionStatus('Approval transaction sent. Waiting for confirmation...');
         await refetchAllowance();
+        setIsApproved(true); // Set approval state to true after approval transaction
       } else {
         throw new Error('No transaction hash received for approve');
       }
     } catch (err) {
       console.error("Error approving tokens:", err);
       setError(err.message || "An error occurred while approving tokens");
+      setTransactionState('error');
     }
   };
 
   const handleBridge = async () => {
     if (!address || !amount || !isConnected || !isApproved || !estimatedGas) {
-      console.error("Missing required parameters:", { address, amount, isConnected, isApproved, estimatedGas });
+      console.error("Missing required parameters:", {
+        address,
+        amount,
+        isConnected,
+        isApproved,
+        estimatedGas,
+      });
       setError("Missing required parameters for bridge operation");
       return;
     }
@@ -247,9 +305,10 @@ const TreatBridge = () => {
       setTransactionState('preparing');
       setTransactionStatus('Preparing bridge transaction...');
 
+      // Convert amount to BigInt
       const amountBigInt = parseEther(amount);
-      const nativeFeeBigInt = estimatedGas.nativeFee ? hexToBigInt(estimatedGas.nativeFee) : 0n;
-      const lzTokenFeeBigInt = estimatedGas.lzTokenFee ? hexToBigInt(estimatedGas.lzTokenFee) : 0n;
+      const nativeFeeBigInt = estimatedGas.nativeFee ? BigInt(estimatedGas.nativeFee) : 0n;
+      const lzTokenFeeBigInt = estimatedGas.lzTokenFee ? BigInt(estimatedGas.lzTokenFee) : 0n;
 
       const bridgeParams = {
         address: fromChain.contractAddress,
@@ -263,13 +322,13 @@ const TreatBridge = () => {
             minAmountLD: amountBigInt,
             extraOptions: '0x',
             composeMsg: '0x',
-            oftCmd: '0x'
+            oftCmd: '0x',
           },
           {
             nativeFee: nativeFeeBigInt,
-            lzTokenFee: lzTokenFeeBigInt
+            lzTokenFee: lzTokenFeeBigInt,
           },
-          address
+          address,
         ],
         value: nativeFeeBigInt,
       };
@@ -278,7 +337,6 @@ const TreatBridge = () => {
       setTransactionStatus('Please confirm the transaction in your wallet...');
 
       await writeBridgeContract(bridgeParams);
-
     } catch (err) {
       console.error("Error initiating bridge transaction:", err);
       setError(`Error initiating bridge transaction: ${err.message}`);
@@ -295,15 +353,15 @@ const TreatBridge = () => {
       try {
         console.log(`Checking LayerZero message (attempt ${attempts + 1}/${maxAttempts})`);
         const response = await lzClient.getMessagesBySrcTxHash(txHash);
-        console.log(response)
+        const jsonResponse = JSON.stringify(response, replacer);
+        console.log(jsonResponse);
 
         if (response && response.messages && response.messages.length > 0) {
-          console.log(response.messages)
-          console.log(response.messages[0])
           const message = response.messages[0];
+          const jsonMessage = JSON.stringify(message, replacer);
           setLzMessage(message);
 
-          console.log("LayerZero message status:", message.status);
+          console.log("LayerZero message status:", jsonMessage);
           if (message.status === 'DELIVERED') {
             setTransactionState('confirmed');
             setTransactionStatus(`LayerZero transaction confirmed. Message delivered to destination chain.`);
@@ -334,10 +392,9 @@ const TreatBridge = () => {
 
     checkMessage();
   };
-
   useEffect(() => {
     if (transactionReceipt) {
-      setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Waiting for LayerZero confirmation...`);
+      setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Please wait for LayerZero confirmation...`);
       refetchFromBalance();
       refetchToBalance();
     }
@@ -373,7 +430,7 @@ const TreatBridge = () => {
 
   useEffect(() => {
     if (transactionReceipt) {
-      setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}`);
+      setTransactionStatus(`Transaction confirmed in block ${transactionReceipt.blockNumber}. Please wait for LayerZero confirmation...`);
       setTransactionState('confirmed');
       refetchFromBalance();
       refetchToBalance();
@@ -425,7 +482,7 @@ const TreatBridge = () => {
       );
     }
 
-    if (!isApproved && fromChain.name === 'BSC Testnet') {
+    if (!isApproved) {
       return (
         <button
           onClick={handleApprove}
@@ -442,8 +499,8 @@ const TreatBridge = () => {
       preparing: 'Preparing...',
       awaitingConfirmation: 'Confirm in Wallet',
       pending: 'Waiting for Confirmation...',
-      transactionConfirmed: 'Confirmed, Waiting for LayerZero...',
-      confirmed: 'Bridge Complete',
+      transactionConfirmed: 'Confirmed, Please wait for LayerZero...',
+      confirmed: 'Bridge Transaction Complete',
       error: 'Try Again'
     }[transactionState];
 
@@ -460,6 +517,101 @@ const TreatBridge = () => {
           {isBridgeLoading ? 'Confirming in Wallet...' : buttonText}
         </button>
       </div>
+    );
+  };
+
+  const EventCard = ({ event, chainConfig }) => {
+    const explorerUrl = `${chainConfig.explorerUrl}${event.transactionHash}`;
+
+    return (
+      <div className="bg-white rounded-lg shadow-md p-4 mb-4 hover:shadow-lg transition-shadow duration-300">
+        <div className="flex justify-between items-start">
+          <div className="space-y-2">
+            <h3 className="text-lg font-semibold text-gray-800">{event.eventName}</h3>
+            <p className="text-sm text-gray-600">
+              Block: <span className="font-medium text-gray-800">{event.blockNumber}</span>
+            </p>
+            <p className="text-sm text-gray-600">
+              Log Index: <span className="font-medium text-gray-800">{event.logIndex}</span>
+            </p>
+          </div>
+          <a
+            href={explorerUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center text-blue-500 hover:text-blue-600 transition-colors duration-300"
+          >
+            <ExternalLink size={16} className="mr-1" />
+            View in Explorer
+          </a>
+        </div>
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <p className="text-sm text-gray-600">
+            From: <span className="font-medium text-gray-800">{event.args?.from}</span>
+          </p>
+          <p className="text-sm text-gray-600">
+            To: <span className="font-medium text-gray-800">{event.args?.to}</span>
+          </p>
+          <p className="text-sm text-gray-600">
+            Value: <span className="font-medium text-gray-800">{formatEther(event.args?.value || 0)} TREAT</span>
+          </p>
+        </div>
+      </div >
+    );
+  };
+  const LzMessageCard = ({ message, fromChain, toChain }) => {
+    const explorerUrlSrc = `${fromChain.explorerUrl}${message.srcTxHash}`;
+    const explorerUrlDst = message.dstTxHash ? `${toChain.explorerUrl}${message.dstTxHash}` : '#';
+
+    return (
+      <div className="bg-white rounded-lg shadow-md p-4 mb-4 hover:shadow-lg transition-shadow duration-300">
+        <div className="flex justify-between items-start">
+          <div className="space-y-2">
+            <h3 className="text-lg font-semibold text-gray-800">LayerZero Message</h3>
+            <p className="text-sm text-gray-600">
+              Status: <span className="font-medium text-green-600">{message.status}</span>
+            </p>
+          </div>
+          <div className="flex space-x-2">
+            <a
+              href={explorerUrlSrc}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center text-blue-500 hover:text-blue-600 transition-colors duration-300"
+            >
+              <ExternalLink size={16} className="mr-1" />
+              Source Tx
+            </a>
+            {message.dstTxHash && (
+              <a
+                href={explorerUrlDst}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center text-blue-500 hover:text-blue-600 transition-colors duration-300"
+              >
+                <ExternalLink size={16} className="mr-1" />
+                Destination Tx
+              </a>
+            )}
+          </div>
+        </div >
+        <div className="mt-3 pt-3 border-t border-gray-200">
+          <div className="flex justify-between">
+            <p className="text-sm text-gray-600">
+              From: <span className="font-medium text-gray-800">{fromChain.name}</span>
+            </p>
+            <p className="text-sm text-gray-600">
+              To: <span className="font-medium text-gray-800">{toChain.name}</span>
+            </p>
+          </div>
+          <div className="flex items-center justify-center mt-2">
+            <Clock size={16} className="text-gray-400 mr-2" />
+            <p className="text-sm text-gray-600">
+              Created: <span className="font-medium text-gray-800">{new Date(message.createdAt).toLocaleString()}</span>
+            </p>
+          </div>
+        </div>
+      </div >
     );
   };
 
@@ -594,29 +746,14 @@ const TreatBridge = () => {
             </div>
           )}
 
-          {lzMessage && (
-            <div className="mt-6">
-              <h3 className="text-lg font-semibold text-gray-700">LayerZero Message:</h3>
-              <pre className="mt-2 bg-gray-100 p-4 rounded-md text-sm overflow-x-auto">
-                {JSON.stringify(lzMessage, null, 2)}
-              </pre>
-            </div>
-          )}
-
-          {eventLogs.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-lg font-semibold text-gray-700">Event Logs:</h3>
-              <ul className="mt-2 space-y-2 text-sm text-gray-600">
-                {eventLogs.map((log, index) => (
-                  <li key={index}>{JSON.stringify(log)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
+          {lzMessage && <LzMessageCard message={lzMessage} fromChain={fromChain} toChain={toChain} />}
+          {eventLogs.map((log, index) => (
+            <EventCard key={index} event={log} chainConfig={fromChain} />
+          ))}
         </div>
       </div>
     </div>
   );
-}
+};
 
 export default TreatBridge;
