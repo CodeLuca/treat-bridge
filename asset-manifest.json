@@ -1,7 +1,7 @@
 {
   "files": {
     "main.css": "/treat-bridge/static/css/main.5651366b.css",
-    "main.js": "/treat-bridge/static/js/main.cd36d5da.js",
+    "main.js": "/treat-bridge/static/js/main.be29cf65.js",
     "static/js/2195.448a123a.chunk.js": "/treat-bridge/static/js/2195.448a123a.chunk.js",
     "static/js/9020.4e3cfe76.chunk.js": "/treat-bridge/static/js/9020.4e3cfe76.chunk.js",
     "static/js/2791.b4bd523e.chunk.js": "/treat-bridge/static/js/2791.b4bd523e.chunk.js",
@@ -70,6 +70,6 @@
   },
   "entrypoints": [
     "static/css/main.5651366b.css",
-    "static/js/main.cd36d5da.js"
+    "static/js/main.be29cf65.js"
   ]
 }
