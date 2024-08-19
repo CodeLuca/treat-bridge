@@ -6442,6 +6442,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"cryptocurrency-icons@npm:^0.18.1":
+  version: 0.18.1
+  resolution: "cryptocurrency-icons@npm:0.18.1"
+  checksum: abf563d9fdc8d481df80d23c96904c92e76a12689ac5fd95c5241d0d5d25391dcda8d710a0741112ac20fdea750b6e2db77bd39ae5d7527c107bb7dfff0e89b8
+  languageName: node
+  linkType: hard
+
 "css-blank-pseudo@npm:^3.0.3":
   version: 3.0.3
   resolution: "css-blank-pseudo@npm:3.0.3"
@@ -16836,6 +16843,7 @@ __metadata:
     "@types/react": ^18.3.0
     autoprefixer: ^10.4.19
     axios: ^1.7.2
+    cryptocurrency-icons: ^0.18.1
     gh-pages: ^6.1.1
     lucide-react: ^0.414.0
     postcss: ^8.4.39
