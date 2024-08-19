@@ -160,6 +160,9 @@ const TreatBridge = () => {
   const [gasFeeError, setGasFeeError] = useState(null);
   const [approvalGasEstimate, setApprovalGasEstimate] = useState(null);
   const [approvalGasError, setApprovalGasError] = useState(null);
+  const [showTransactionStatus, setShowTransactionStatus] = useState(false);
+  const [isApprovalInProgress, setIsApprovalInProgress] = useState(false);
+  const [approvalState, setApprovalState] = useState('idle'); // 'idle', 'awaitingConfirmation', 'confirming', 'success', 'error'
 
   const {
     writeContract: writeApproveContract,
@@ -248,13 +251,13 @@ const TreatBridge = () => {
   }, [address]);
 
   useEffect(() => {
-    if (isApproveSuccess) {
-      handleApprovalSuccess();
+    if (isApproveSuccess && approveData) {
+      handleApprovalSuccess(approveData);
     } else if (approveError) {
-      setIsApprovalPending(false);
-      setTransactionState('idle');
-      setCurrentTransactionType(null);
+      setApprovalState('error');
       setTransactionStatus('');
+      setError('Approval failed. Please try again.');
+      setIsApprovalInProgress(false);
     }
   }, [isApproveSuccess, approveError, approveData]);
 
@@ -272,10 +275,19 @@ const TreatBridge = () => {
     }
   }, [isBridgeSuccess, writeBridgeData, bridgeError]);
 
-  const handleApprovalSuccess = () => {
-    setCurrentTransactionType('approval');
-    setTxHash(approveData);
-    setTransactionStatus('Approval transaction sent. Waiting for confirmation...');
+  const handleApprovalSuccess = async (txHash) => {
+    setTransactionStatus('Approval transaction confirmed. Updating allowance...');
+
+    // Wait for the transaction to be mined
+    await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+    // Refetch the allowance to ensure it's updated
+    await refetchAllowance();
+
+    setApprovalState('success');
+    setIsApproved(true);
+    setIsApprovalInProgress(false);
+    setTransactionStatus('Approval successful. You can now bridge your tokens.');
   };
 
   const estimateGas = async () => {
@@ -318,23 +330,18 @@ const TreatBridge = () => {
     }
   };
 
-  const resetAllStates = () => {
-    setIsApproved(false);
-    setTransactionState('idle');
-    setCurrentTransactionType(null);
-    setTransactionStatus('');
-    setError(null);
-    setGasFeeError(null);
-    setApprovalGasError(null);
-    setEstimatedGas(null);
-    setAmount('');
-    setPercentageToTransfer(0);
-    setIsApprovalPending(false);
+  const resetTransactionStatus = () => {
+    setShowTransactionStatus(false);
     setTxHash(null);
     setLzMessage(null);
     setEventLogs([]);
-    setIsLzLoading(false);
   };
+
+  useEffect(() => {
+    if (useCustomAddress) {
+      resetTransactionStatus();
+    }
+  }, [useCustomAddress]);
 
   const handleFromChainChange = async (selectedChain) => {
     if (!selectedChain || selectedChain.chainId === fromChain?.chainId) return;
@@ -368,6 +375,21 @@ const TreatBridge = () => {
     setFromChain(toChain);
     setToChain(tempFrom);
     refetchData();
+  };
+
+  const resetAllStates = () => {
+    setIsApproved(false);
+    setTransactionState('idle');
+    setCurrentTransactionType(null);
+    setTransactionStatus('');
+    setError(null);
+    setGasFeeError(null);
+    setApprovalGasError(null);
+    setEstimatedGas(null);
+    setAmount('');
+    setPercentageToTransfer(0);
+    setIsApprovalPending(false);
+    resetTransactionStatus();
   };
 
   const refetchData = async () => {
@@ -523,26 +545,12 @@ const TreatBridge = () => {
     try {
       setError(null);
       setApprovalGasError(null);
-      setIsApprovalPending(true);
-      setTransactionState('awaitingApprovalConfirmation');
+      setApprovalState('awaitingConfirmation');
       setTransactionStatus('Please confirm the approval transaction in your wallet...');
-      setCurrentTransactionType('approval');
-
-      const hasEnoughGas = await checkSufficientGasForApproval();
-      if (!hasEnoughGas) {
-        setIsApprovalPending(false);
-        setTransactionState('idle');
-        setCurrentTransactionType(null);
-        setTransactionStatus('');
-        return;
-      }
+      setIsApprovalInProgress(true); // Set approval in progress
 
       const approvalAmount = parseEther(amount || formatEther(fromBalance.value));
       console.log('Approval amount:', approvalAmount);
-
-      const feeData = await publicClient.getFeeHistory({ blockCount: 2, rewardPercentiles: [25, 75] });
-      const maxFeePerGas = feeData.baseFeePerGas[0] * BigInt(2) + feeData.reward[0][1];
-      const maxPriorityFeePerGas = feeData.reward[0][1];
 
       await writeApproveContract({
         address: fromChain.tokenAddress,
@@ -560,21 +568,17 @@ const TreatBridge = () => {
         ],
         functionName: 'approve',
         args: [fromChain.contractAddress, approvalAmount],
-        gas: approvalGasEstimate,
-        maxFeePerGas,
-        maxPriorityFeePerGas,
       });
+
+      setApprovalState('confirming');
+      setTransactionStatus('Approval transaction sent. Waiting for confirmation...');
 
     } catch (err) {
       console.error("Error approving tokens:", err);
-      setIsApprovalPending(false);
-      setTransactionState('idle');
-      setCurrentTransactionType(null);
-      if (err.code === 4001) {
-        setTransactionStatus('Transaction rejected by user. Please try again.');
-      } else {
-        setError(err.message || "An error occurred while approving tokens");
-      }
+      setApprovalState('error');
+      setTransactionStatus('');
+      setError(err.message || "An error occurred while approving tokens");
+      setIsApprovalInProgress(false); // Reset approval in progress
     }
   };
 
@@ -602,6 +606,7 @@ const TreatBridge = () => {
       setLzMessage(null);
       setTxHash(null);
       setEventLogs([]);
+      setShowTransactionStatus(true); // Show transaction status when bridging starts
 
       // Re-estimate gas before each transaction
       await estimateGas();
@@ -799,7 +804,6 @@ const TreatBridge = () => {
 
   const { newFromBalance, newToBalance } = calculateNewBalances();
 
-  console.log({ currentTransactionType, transactionState })
   const renderActionButton = () => {
     if (!isConnected) return <div className="flex justify-center"><ConnectButton /></div>;
     if (!isOnCorrectChain) return (
@@ -807,15 +811,18 @@ const TreatBridge = () => {
         Switch to {fromChain?.name}
       </button>
     );
-    if (!isApproved) return (
-      <button
-        onClick={handleApprove}
-        disabled={isApprovalPending || transactionState === 'awaitingApprovalConfirmation' || !!approvalGasError}
-        className="w-full py-3 px-4 bg-blue-500 text-white font-medium rounded-lg shadow hover:bg-blue-600 transition duration-150 ease-in-out disabled:opacity-50"
-      >
-        {isApprovalPending || transactionState === 'awaitingApprovalConfirmation' ? 'Waiting for Approval...' : 'Approve TREAT'}
-      </button>
-    );
+    if (!isApproved) {
+      switch (approvalState) {
+        case 'awaitingConfirmation':
+          return <button disabled className="w-full py-3 px-4 bg-blue-500 text-white font-medium rounded-lg shadow opacity-50">Confirm in Wallet</button>;
+        case 'confirming':
+          return <button disabled className="w-full py-3 px-4 bg-blue-500 text-white font-medium rounded-lg shadow opacity-50">Approval Confirming...</button>;
+        case 'error':
+        case 'idle':
+        default:
+          return <button onClick={handleApprove} className="w-full py-3 px-4 bg-blue-500 text-white font-medium rounded-lg shadow hover:bg-blue-600 transition duration-150 ease-in-out">Approve TREAT</button>;
+      }
+    }
     return (
       <button onClick={handleBridge} disabled={isBridgeLoading || (transactionState !== 'idle' && transactionState !== 'confirmed' && transactionState !== 'error')}
         className="w-full py-3 px-4 bg-pink-500 text-white font-medium rounded-lg shadow hover:bg-pink-600 transition duration-150 ease-in-out disabled:opacity-50">
@@ -984,7 +991,7 @@ const TreatBridge = () => {
             </div>
           </div>
           <div className="px-4 py-6 sm:p-8">
-            <div className="grid grid-cols-1 sm:grid-cols-7 gap-4 sm:gap-6 mb-8">
+            <div className={`grid grid-cols-1 sm:grid-cols-7 gap-4 sm:gap-6 mb-8 ${isApprovalInProgress || isTransactionInProgress ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="sm:col-span-3 space-y-4">
                 <h2 className="text-xl font-semibold text-gray-700">From</h2>
                 <div className={isTransactionInProgress ? "opacity-50 pointer-events-none" : ""}>
@@ -1036,7 +1043,12 @@ const TreatBridge = () => {
                       type="checkbox"
                       id="useCustomAddress"
                       checked={useCustomAddress}
-                      onChange={(e) => setUseCustomAddress(e.target.checked)}
+                      onChange={(e) => {
+                        setUseCustomAddress(e.target.checked);
+                        if (!e.target.checked) {
+                          resetTransactionStatus();
+                        }
+                      }}
                       className="form-checkbox h-4 w-4 text-pink-600 transition duration-150 ease-in-out"
                       disabled={isTransactionInProgress}
                     />
@@ -1066,7 +1078,7 @@ const TreatBridge = () => {
               </div>
             </div>
 
-            <div className="space-y-6 mb-8">
+            <div className={`space-y-6 mb-8 ${isApprovalInProgress || isTransactionInProgress ? 'opacity-50 pointer-events-none' : ''}`}>
               <h2 className="text-xl font-semibold text-gray-700">Amount to Transfer</h2>
               <div className="relative rounded-md shadow-sm">
                 <input
@@ -1128,13 +1140,18 @@ const TreatBridge = () => {
                   {error || gasFeeError || approvalGasError}
                 </p>
               )}
-              {isLzLoading && <LoadingSpinner loading={isLzLoading} message="Waiting for LayerZero confirmation..." />}
+              {(isLzLoading) && (
+                <LoadingSpinner
+                  loading={isLzLoading || isApprovalInProgress}
+                  message={isLzLoading ? "Waiting for LayerZero confirmation..." : "Waiting for approval confirmation..."}
+                />
+              )}
             </div>
           </div>
         </div>
 
-        {/* Only show transaction status card when a transaction is actually in progress */}
-        {(txHash || lzMessage) && transactionState !== 'idle' && (
+        {/* Show transaction status card when a transaction is in progress or when showTransactionStatus is true */}
+        {(showTransactionStatus || transactionState !== 'idle') && (txHash || lzMessage) && currentTransactionType === 'bridge' && (
           <TransactionStatusCard
             message={lzMessage}
             fromChain={fromChain}
